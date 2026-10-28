@@ -7,7 +7,7 @@ export interface RedFlag {
   title: string;
   detail: string;
   severity: Severity;
-  source: "ai" | "link_check" | "pattern";
+  source: "ai" | "link_check" | "pattern" | "content_check" | "file_check";
 }
 
 export interface LinkReport {
@@ -18,6 +18,24 @@ export interface LinkReport {
   domain_age_days: number | null;
   on_blocklist: boolean;
   checks: { name: string; detail: string; severity: Severity }[];
+}
+
+export interface FileCheck {
+  file_type: string;
+  sha256: string;
+  status: "clean" | "warning" | "blocked";
+  findings: { name: string; title: string; detail: string; severity: Severity }[];
+  checks_run: string[];
+  pages: number | null;
+  text_chars: number;
+  truncated: boolean;
+}
+
+// Documents go to the safety checks; everything else is treated as a screenshot.
+export const DOCUMENT_TYPES = [".pdf", ".docx"];
+export function isDocument(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return DOCUMENT_TYPES.some((ext) => name.endsWith(ext));
 }
 
 export interface ScanResult {
@@ -43,6 +61,7 @@ export interface ScanResult {
     degraded: boolean;
     degraded_reason: string | null;
   };
+  file_check?: FileCheck | null;
 }
 
 export interface Stats {
@@ -72,7 +91,7 @@ async function errorMessage(res: Response): Promise<string> {
 
 export async function scanMessage(input: { image?: File | null; text?: string }): Promise<ScanResult> {
   const form = new FormData();
-  if (input.image) form.append("image", input.image);
+  if (input.image) form.append(isDocument(input.image) ? "document" : "image", input.image);
   if (input.text?.trim()) form.append("text", input.text.trim());
   let res: Response;
   try {
@@ -123,5 +142,6 @@ export const SCAM_TYPE_LABEL: Record<string, string> = {
   subscription_or_invoice: "Fake invoice or renewal",
   utility_shutoff: "Fake utility shutoff",
   wrong_number_opener: "“Wrong number” opener",
+  malware: "A file carrying malware",
   other: "Other scam",
 };

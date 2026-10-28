@@ -1,14 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, scanMessage, type ScanResult } from "@/lib/api";
+import { ApiError, isDocument, scanMessage, type ScanResult } from "@/lib/api";
 import { Result } from "./Result";
 
 type Mode = "screenshot" | "text";
 
 const STEPS = ["Reading the message…", "Checking the links…", "Comparing with known scams…", "Writing up what we found…"];
+const DOC_STEPS = [
+  "Checking the file for hidden code…",
+  "Reading it in a locked-down sandbox…",
+  "Checking the links…",
+  "Writing up what we found…",
+];
 const MAX_MB = 8;
-const ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif";
+const ACCEPT =
+  "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,.heic,.heif," +
+  ".pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 export function Checker() {
   const [mode, setMode] = useState<Mode>("screenshot");
@@ -25,19 +33,27 @@ export function Checker() {
 
   const pick = useCallback((f: File | undefined | null) => {
     if (!f) return;
-    if (!f.type.startsWith("image/") && !/\.(heic|heif)$/i.test(f.name)) {
-      setError("That file isn't a picture. Take a screenshot of the message and upload that.");
+    const doc = isDocument(f);
+    if (!doc && !f.type.startsWith("image/") && !/\.(heic|heif)$/i.test(f.name)) {
+      setError(
+        "We can check screenshots, PDFs, and Word (.docx) files. Other files aren't opened, for your safety. " +
+          "Don't open a file you weren't expecting.",
+      );
       return;
     }
     if (f.size > MAX_MB * 1024 * 1024) {
-      setError(`That picture is over ${MAX_MB} MB. Try a regular screenshot instead of a photo.`);
+      setError(
+        doc
+          ? `That file is over ${MAX_MB} MB, too big to check.`
+          : `That picture is over ${MAX_MB} MB. Try a regular screenshot instead of a photo.`,
+      );
       return;
     }
     setError(null);
     setResult(null);
     setMode("screenshot");
     setFile(f);
-    setPreview(URL.createObjectURL(f));
+    setPreview(doc ? null : URL.createObjectURL(f));
   }, []);
 
   // Free the old preview's memory whenever it is replaced or the page closes.
@@ -49,8 +65,10 @@ export function Checker() {
 
   function choose(f: File | null) {
     setFile(f);
-    setPreview(f ? URL.createObjectURL(f) : null);
+    setPreview(f && !isDocument(f) ? URL.createObjectURL(f) : null);
   }
+
+  const steps = file && isDocument(file) && mode === "screenshot" ? DOC_STEPS : STEPS;
 
   // Paste a screenshot from the clipboard anywhere on the page.
   useEffect(() => {
@@ -67,9 +85,9 @@ export function Checker() {
 
   useEffect(() => {
     if (!busy) return;
-    const id = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 2600);
+    const id = setInterval(() => setStep((s) => Math.min(s + 1, steps.length - 1)), 2600);
     return () => clearInterval(id);
-  }, [busy]);
+  }, [busy, steps.length]);
 
   const canSubmit = !busy && (mode === "screenshot" ? !!file : text.trim().length > 0);
 
@@ -105,7 +123,7 @@ export function Checker() {
       <form className="checker" onSubmit={submit} aria-busy={busy}>
         <div className="mode-switch" role="group" aria-label="What do you want to check?">
           <button type="button" aria-pressed={mode === "screenshot"} onClick={() => setMode("screenshot")}>
-            Screenshot
+            Screenshot or file
           </button>
           <button type="button" aria-pressed={mode === "text"} onClick={() => setMode("text")}>
             Paste text or a link
@@ -118,19 +136,25 @@ export function Checker() {
               <circle cx="13" cy="13" r="9" fill="none" stroke="currentColor" strokeWidth="2.6" />
               <path d="M20 20l8 8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
             </svg>
-            <p>{STEPS[step]}</p>
+            <p>{steps[step]}</p>
             <small>This usually takes 10 to 30 seconds, sometimes up to a minute.</small>
           </div>
         ) : mode === "screenshot" ? (
           <>
-            {file && preview ? (
+            {file ? (
               <div className="preview">
-                {/* eslint-disable-next-line @next/next/no-img-element -- local blob preview */}
-                <img src={preview} alt="The screenshot you chose" />
+                {preview ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- local blob preview
+                  <img src={preview} alt="The screenshot you chose" />
+                ) : (
+                  <div className="doc-thumb" aria-hidden="true">
+                    {file.name.toLowerCase().endsWith(".pdf") ? "PDF" : "DOCX"}
+                  </div>
+                )}
                 <div className="file-meta">
                   <p className="file-name">{file.name || "Pasted screenshot"}</p>
                   <button type="button" className="link-btn" onClick={() => choose(null)}>
-                    Choose a different picture
+                    {preview ? "Choose a different picture" : "Choose a different file"}
                   </button>
                   <label className="field-label" htmlFor="note">
                     Anything we should know? <span className="hint">(optional)</span>
@@ -161,9 +185,10 @@ export function Checker() {
               >
                 <input type="file" accept={ACCEPT} onChange={(e) => pick(e.target.files?.[0])} />
                 <div>
-                  <strong>Choose a screenshot</strong>
+                  <strong>Choose a screenshot, PDF, or Word file</strong>
                   <span>
-                    or drag it here, or press <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">V</kbd> to paste
+                    or drag it here, or press <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">V</kbd> to paste a
+                    screenshot
                   </span>
                 </div>
               </label>
@@ -204,8 +229,8 @@ export function Checker() {
         )}
 
         <p className="privacy">
-          We read your screenshot, then throw it away. It is never saved. Cover any account numbers before uploading if you
-          like.
+          We read your screenshot or file, then throw it away. It is never saved. Files are checked for hidden code
+          first, and anything dangerous is never opened. Cover any account numbers before uploading if you like.
         </p>
       </form>
 

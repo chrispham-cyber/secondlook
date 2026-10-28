@@ -1,5 +1,7 @@
 # One command to run everything locally:  docker compose up --build
 # Then open http://localhost:3000
+# With a ClamAV virus scan of every uploaded document (downloads ~300 MB of signatures on first start):
+#   CLAMAV_HOST=clamav docker compose --profile antivirus up --build
 services:
   frontend:
     build:
@@ -23,6 +25,8 @@ services:
       CORS_ORIGINS: http://localhost:3000
       # With LLM_PROVIDER=ollama in .env, the container reaches the Ollama app running on your Mac.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Empty = no ClamAV. When set, documents are refused while ClamAV is unreachable.
+      CLAMAV_HOST: ${CLAMAV_HOST:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -35,6 +39,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  clamav:
+    image: clamav/clamav:1.4
+    profiles: ["antivirus"]
+    expose:
+      - "3310"
+    volumes:
+      - clamdb:/var/lib/clamav
 
   db:
     image: postgres:17-alpine
@@ -52,3 +64,4 @@ services:
 
 volumes:
   pgdata:
+  clamdb:

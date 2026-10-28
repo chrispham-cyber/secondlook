@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import Settings, get_settings
 from app.db import Store
+from app.files import AntivirusUnavailable, DocumentInspector
 from app.images import ImageError, prepare_image
 from app.pipeline import LinkAnalyzer, ScanPipeline, ScanUnavailable
 from app.providers import Analyzer, make_analyzer, model_label
@@ -40,6 +41,15 @@ def create_app(
         app.state.blocklist = blocklist
         app.state.store = Store(settings.database_url)
         app.state.limiter = RateLimiter(settings.rate_limit_per_minute)
+        app.state.documents = DocumentInspector(
+            max_pages=settings.max_document_pages,
+            max_chars=settings.max_text_chars,
+            timeout_s=settings.document_timeout_seconds,
+            memory_mb=settings.document_memory_mb,
+            concurrency=settings.document_concurrency,
+            clamav_host=settings.clamav_host,
+            clamav_port=settings.clamav_port,
+        )
         app.state.pipeline = ScanPipeline(
             settings, analyzer or make_analyzer(settings), LinkAnalyzer(settings, client, blocklist)
         )
@@ -78,7 +88,12 @@ def create_app(
         }
 
     @app.post("/api/scan", response_model=ScanResponse)
-    async def scan(request: Request, image: UploadFile | None = File(None), text: str | None = Form(None)):
+    async def scan(
+        request: Request,
+        image: UploadFile | None = File(None),
+        document: UploadFile | None = File(None),
+        text: str | None = Form(None),
+    ):
         allowed, retry_after = request.app.state.limiter.allow(client_ip(request))
         if not allowed:
             return JSONResponse(
@@ -90,6 +105,11 @@ def create_app(
         text = (text or "").strip() or None
         if text and len(text) > settings.max_text_chars:
             raise HTTPException(413, f"Text is too long (max {settings.max_text_chars:,} characters).")
+
+        if document is not None and document.filename:
+            if image is not None and image.filename:
+                raise HTTPException(400, "Upload one file at a time: a screenshot or a document.")
+            return await scan_document(request, document, text)
 
         prepared = None
         if image is not None and image.filename:
@@ -121,6 +141,58 @@ def create_app(
             result.meta.latency_ms,
             result.meta.cost_usd,
             result.meta.degraded,
+        )
+        return result
+
+    async def scan_document(request: Request, document: UploadFile, text: str | None) -> ScanResponse:
+        max_bytes = int(settings.max_upload_mb * 1_000_000)
+        data = await document.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise HTTPException(413, f"File is too large (max {settings.max_upload_mb:g} MB).")
+        try:
+            inspection = await request.app.state.documents.inspect(data)
+        except AntivirusUnavailable as exc:
+            log.warning("document refused, antivirus down: %s", exc)
+            raise HTTPException(
+                503, "We can't scan files for viruses right now, so we're not opening any. Try a screenshot instead."
+            ) from exc
+        del data  # the file itself is never kept
+
+        check = inspection.check
+        if inspection.blocked:
+            result = request.app.state.pipeline.blocked_file(inspection)
+        else:
+            kind = "PDF" if check.file_type == "pdf" else "Word document"
+            parts = [text] if text else []
+            if inspection.text:
+                parts.append(f"[Text from the uploaded {kind}]\n{inspection.text}")
+            if inspection.urls:
+                parts.append("[Links in the document]\n" + "\n".join(inspection.urls[:20]))
+            combined = "\n\n".join(parts)[: settings.max_text_chars * 2]
+            if not combined.strip():
+                raise HTTPException(
+                    400,
+                    f"This {kind} looks safe, but it has no text we can read (it may be a scanned image). "
+                    "Take a screenshot of it and upload that instead.",
+                )
+            result = await request.app.state.pipeline.run(combined, None, file_check=check)
+
+        try:
+            await run_in_threadpool(
+                request.app.state.store.save_scan,
+                result,
+                check.file_type if check.file_type in ("pdf", "docx") else "file_refused",
+            )
+        except Exception:
+            log.exception("failed to record scan metadata")
+        log.info(
+            "scan %s kind=document type=%s file=%s findings=%s verdict=%s score=%d",
+            result.id,
+            check.file_type,
+            check.status,
+            ",".join(f.name for f in check.findings) or "-",
+            result.verdict,
+            result.risk_score,
         )
         return result
 

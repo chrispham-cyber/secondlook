@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 Severity = Literal["low", "medium", "high"]
 Verdict = Literal["likely_safe", "suspicious", "likely_scam", "scam"]
-Source = Literal["ai", "link_check", "pattern"]
+Source = Literal["ai", "link_check", "pattern", "content_check", "file_check"]
 
 SCAM_TYPES = [
     "none",
@@ -146,6 +146,26 @@ class ScanMeta(BaseModel):
     degraded_reason: str | None = None
 
 
+class FileFinding(BaseModel):
+    name: str
+    title: str
+    detail: str
+    severity: Severity
+
+
+class FileCheck(BaseModel):
+    """What the safety checks found in an uploaded document, before anything read its contents."""
+
+    file_type: str  # "pdf", "docx", or what the file really is when it was refused
+    sha256: str  # lets someone look the file up on VirusTotal without uploading it again
+    status: Literal["clean", "warning", "blocked"]
+    findings: list[FileFinding]
+    checks_run: list[str]
+    pages: int | None = None
+    text_chars: int = 0
+    truncated: bool = False
+
+
 class ScanResponse(BaseModel):
     id: str
     risk_score: int = Field(ge=0, le=100)
@@ -161,6 +181,7 @@ class ScanResponse(BaseModel):
     extracted_text: str
     score_breakdown: ScoreBreakdown
     meta: ScanMeta
+    file_check: FileCheck | None = None
 
 
 class FeedbackRequest(BaseModel):

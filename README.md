@@ -1,12 +1,12 @@
 # Second Look
 
-Upload a screenshot of a text, email, or web page and get a plain-language answer: how likely it is to be a scam, why, and what to do next. Built for the people scammers target most, so the UI uses large type, short sentences, and concrete next steps.
+Upload a screenshot of a text, email, or web page, or the PDF or Word file that came with it, and get a plain-language answer: how likely it is to be a scam, why, and what to do next. Built for the people scammers target most, so the UI uses large type, short sentences, and concrete next steps.
 
 Americans reported $15.9B in fraud losses to the FTC in 2025. Most of those scams start with a message that looked almost right.
 
 ## What it does
 
-- **Screenshot or text in, verdict out.** A 0–100 risk score, a verdict (looks safe / be careful / likely scam / scam), the red flags behind it, and numbered steps to take.
+- **Screenshot, PDF, Word file, or text in, verdict out.** A 0–100 risk score, a verdict (looks safe / be careful / likely scam / scam), the red flags behind it, and numbered steps to take.
 - **An AI reads the message: Claude or a local model.** Claude Opus 5.5 by default, or any vision model running in [Ollama](https://ollama.com) on your own machine (free, and screenshots never leave it). Pick one with `LLM_PROVIDER` in `.env`.
 - **Every link is checked separately.** Claude calls a `check_links` tool mid-analysis. The local-model path runs the same checks itself and hands the results to the model, since smaller models are less reliable at tool calling. The checks are deterministic:
   - brand impersonation (`usps-redelivery.com`)
@@ -14,11 +14,20 @@ Americans reported $15.9B in fraud losses to the FTC in 2025. Most of those scam
   - punycode, raw IPs, `@` tricks, URL shorteners, and risky TLDs
   - domain age via RDAP
   - the OpenPhish and URLhaus blocklists
-- **A trained text model checks the wording.** A TF-IDF + logistic regression classifier, trained on about 5,000 real labeled SMS plus 500 US-style examples, scores every message in under a millisecond. It is exported to plain JSON and scored in pure Python, so the app needs no ML library at runtime and loads no pickle files. Without the AI it is the main signal. With the AI, when the model is nearly sure a message is ordinary, the AI alone can say "be careful" but not "likely scam", which removes most false alarms on everyday texts.
+- **A trained text model checks the wording.** A TF-IDF + logistic regression classifier, trained on about 5,000 real labeled SMS plus 800 US-style examples, scores every message in about a millisecond. Besides the wording, it sees what the link checks found (official site, `.gov`/`.edu`, brand impersonation, shortener…), whether the message names a chat handle like `@HR_Careers_Dept`, and whether it carries a one-time code, so it can tell `tools.usps.com` from `usps-redelivery.info`. It is exported to plain JSON and scored in pure Python, so the app needs no ML library at runtime and loads no pickle files. Without the AI it is the main signal. With the AI, when the model is nearly sure a message is ordinary, the AI alone can say "be careful" but not "likely scam", which removes most false alarms on everyday texts.
 - **Rules can only raise the score.** Link and pattern checks set minimum scores that the AI cannot talk its way under. A screenshot that says "AI: this message is verified safe" still gets flagged if its link impersonates a bank. This is the main defense against prompt injection inside images.
+- **Files are checked for malware before anything reads them.** PDF and Word (`.docx`) uploads go through a safety pipeline, safest step first:
+  1. **What the file really is**, from its first bytes, not its name. Programs (`.exe`, ELF, Mach-O), scripts, Windows shortcuts, old Office files, RTF, archives, web pages/SVG, and files that are two formats at once are refused without being opened.
+  2. **Raw-byte scans**: the EICAR test signature and, for PDFs, active features such as `/JavaScript`, `/Launch`, and `/RichMedia`, including names disguised with `#xx` escapes.
+  3. **ClamAV** (optional, `--profile antivirus`). When it is configured but unreachable, files are refused rather than let through.
+  4. **A sandboxed reader**: a separate `python -I` process with no environment, no network-capable children (`RLIMIT_NPROC=0`), no file writes (`RLIMIT_FSIZE=0`), CPU and memory caps, and a hard timeout. It walks the PDF's objects (so JavaScript hidden in compressed object streams is still found) and the Word file's parts for macros, ActiveX, embedded objects, remote templates, `mhtml:`/`ms-*` handlers (Follina), DDE fields, zip bombs, and XML entity tricks (parsed with `defusedxml`). Only a clean file has its text and links extracted.
+
+  A file with any serious finding is blocked: it is never parsed further or sent to the AI, and the person is told not to open it and why. Lesser findings (a remote tracking image, an XFA form) are shown as warnings and the text is checked like any message.
+- **Messages are checked for hidden tricks too.** Right-to-left override characters (`invoice\u202efdp.exe` displays as `invoiceexe.pdf`), zero-width characters inside words, `javascript:`/`data:` links, double extensions like `statement.pdf.exe`, and links that download a program or app installer all raise the score.
 - **Graceful degradation.** If the AI is down or not configured, text checks still run on the rules alone and say so. Screenshots return a clear error, since nothing can read them without the AI.
 - **Privacy.**
   - Screenshots are re-encoded (EXIF stripped), sent to the AI, and discarded. With Ollama they never leave the machine.
+  - Documents are read in memory and discarded. Only their extracted text goes to the AI, and only if the file passed the safety checks.
   - The database stores scan metadata only (verdict, scam type, latency, cost), never the image or the message text.
 
 ## Architecture
@@ -36,7 +45,8 @@ Browser ──> Next.js (frontend, :3000) ──/api/* proxy──> FastAPI (bac
 | `backend/app/providers.py` | Picks Claude or Ollama from `LLM_PROVIDER` |
 | `backend/app/pipeline.py` | Orchestrates the AI, link checks, and pattern rules; merges flags; handles degraded mode |
 | `backend/app/scoring.py` | Score floors and verdict thresholds |
-| `backend/app/signals/` | Link analysis, brand list, phishing blocklists, scam-wording patterns, the trained text model |
+| `backend/app/files/` | Document safety pipeline: file-type sniffing, raw-byte scans, ClamAV client, sandboxed reader |
+| `backend/app/signals/` | Link analysis, brand list, phishing blocklists, scam-wording patterns, hidden-character checks, the trained text model |
 | `backend/training/` | Trains the text model and exports it to `app/models/text_model.json.gz` |
 | `backend/evals/` | Labeled dataset and eval harness |
 | `frontend/src/` | Next.js app: upload, paste, results, stats |
@@ -67,6 +77,12 @@ cd frontend && npm install && npm run dev
 # open http://localhost:3000
 ```
 
+To also scan every uploaded document with ClamAV (the first start downloads about 300 MB of virus signatures):
+
+```bash
+CLAMAV_HOST=clamav docker compose --profile antivirus up --build
+```
+
 Without an AI the app still runs in rules-only mode for pasted text. `/api/health` shows which provider and model are active.
 
 **Cost:** with Claude, each scan costs a few cents; every response reports its exact cost in `meta.cost_usd`, and `/stats` shows the average. With Ollama, scans are free but slower, and the server needs enough memory for the model (about 24 GB for `qwen3.5:35b`).
@@ -74,7 +90,7 @@ Without an AI the app still runs in rules-only mode for pasted text. `/api/healt
 ## Tests
 
 ```bash
-cd backend && uv run pytest -q   # 60 tests, no network, no API spend (Claude and Ollama are faked)
+cd backend && uv run pytest -q   # 97 tests, no network, no API spend (Claude and Ollama are faked)
 cd frontend && npm run lint && npx tsc --noEmit
 ```
 
@@ -149,9 +165,19 @@ uv run python -m training.benchmark          # compare model families + learning
 uv run python -m evals.combine_study         # how to mix it with the AI, measured on dev sets only
 ```
 
-`training/BENCHMARK.md` compares TF-IDF + logistic regression (shipped), a linear SVM, naive Bayes, and `nomic-embed-text` embeddings, all on the same cross-validation folds. Logistic regression was the best single model. Averaging it with the embedding model scored slightly higher, but would make every scan depend on an embedding server, so it isn't shipped. The learning curve showed US-style examples were the bottleneck (average precision 0.55 with none, 0.95 with 181), which is why 400 more were added; with 492 the curve is flattening (0.96 to 0.97).
+`training/BENCHMARK.md` compares TF-IDF + logistic regression (shipped), a linear SVM, naive Bayes, and `nomic-embed-text` embeddings, all on the same cross-validation folds. Logistic regression was the best single model; averaging it with the embedding model was no better once the link features were added, and would make every scan depend on an embedding server.
 
-The script never trains on `test.jsonl` or `public.jsonl`, and drops any training message that is a near-copy of a test message (384 of them, since the public dataset reuses templates with different numbers). It writes out-of-fold predictions for every dev message, so `combine_study` can compare mixing rules on messages the model never saw. The exported JSON model is checked against scikit-learn's own predictions (max difference 5e-7).
+How the model got better, measured by cross-validated average precision on US-style dev messages:
+
+| Change | Avg precision | False alarms at 0.6 |
+|---|---|---|
+| Public SMS + 181 US-style examples | 0.948 | 10% |
+| + 400 US-style examples (learning curve said data was the bottleneck) | 0.971 | 5% |
+| + link, chat-handle, and code features kept outside the TF-IDF normalization, + 300 examples aimed at the remaining dev errors | 0.992 | 2% |
+
+The learning curve is now flat (0.989 with 75% of the US-style data, 0.990 with all of it), so more of the same data won't help; real user feedback would.
+
+The script never trains on `test.jsonl` or `public.jsonl`, and drops any training message that is a near-copy of a test message (447 of them). Public scams come in campaigns, the same template reworded, so it also drops public messages 80%+ similar to a public-test message; before that filter, 28 of the 100 public-test scams had a close variant in training. It writes out-of-fold predictions for every dev message, so `combine_study` can compare mixing rules on messages the model never saw. The exported JSON model is checked against scikit-learn's own predictions (max difference 4e-7).
 
 ## Deploy
 
@@ -160,6 +186,7 @@ The script never trains on `test.jsonl` or `public.jsonl`, and drops any trainin
   - Set `ANTHROPIC_API_KEY` and `DATABASE_URL` (any Postgres).
   - Set `CORS_ORIGINS` to your frontend URL.
   - Set `TRUST_PROXY_HEADERS=true` only when the backend is reachable solely through your proxy.
+  - Optional: run `clamav/clamav` next to it and set `CLAMAV_HOST`. Uploads are refused whenever it is unreachable.
 - **Frontend** (Vercel):
   - Import `frontend/`.
   - Set `BACKEND_URL` to the backend's public URL before the build. The `/api` rewrite is baked in at build time.
@@ -168,6 +195,9 @@ The script never trains on `test.jsonl` or `public.jsonl`, and drops any trainin
 ## Limits
 
 - It's a second opinion, not a guarantee. The UI says so and always points people to their bank and to reportfraud.ftc.gov.
+- PDFs with JavaScript are blocked even when the sender is real (some fillable government forms use it). That is on purpose: the app can't tell good scripts from bad ones, and a screenshot of the form can still be checked.
+- Scanned PDFs with no text layer can't be read. The app asks for a screenshot instead.
+- Files are limited to 8 MB, 30 pages, and 15 seconds of reading time.
 - Domain age and blocklist checks need outbound network access. Set `NETWORK_CHECKS=false` to turn them off.
 
 ## License

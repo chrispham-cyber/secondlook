@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { SCAM_TYPE_LABEL, sendFeedback, VERDICT_LABEL, type ScanResult, type Verdict } from "@/lib/api";
+import { SCAM_TYPE_LABEL, sendFeedback, VERDICT_LABEL, type FileCheck, type ScanResult, type Verdict } from "@/lib/api";
 
 const TONE: Record<Verdict, "safe" | "caution" | "danger"> = {
   likely_safe: "safe",
@@ -14,7 +14,49 @@ const SOURCE_LABEL = {
   ai: "Found by reading the message",
   link_check: "Found by checking the link",
   pattern: "Common scam wording",
+  content_check: "Found by checking for hidden tricks",
+  file_check: "Found by the file safety check",
 } as const;
+
+const FILE_STATUS = {
+  clean: { tone: "safe", title: "No hidden code found in this file" },
+  warning: { tone: "caution", title: "This file has some warning signs" },
+  blocked: { tone: "danger", title: "We didn’t open this file" },
+} as const;
+
+function FileSafety({ check }: { check: FileCheck }) {
+  const s = FILE_STATUS[check.status];
+  const kind = check.file_type === "pdf" ? "PDF" : check.file_type === "docx" ? "Word document" : "file";
+  return (
+    <div className="block filecheck" data-tone={s.tone}>
+      <h3>File safety check</h3>
+      <p className="filecheck-title">{s.title}</p>
+      {check.status === "blocked" ? (
+        <p>
+          It was stopped before anything read it, and it was never sent to the AI. The reasons are listed below under
+          “Why we think so”.
+        </p>
+      ) : (
+        <p>
+          We looked inside this {kind} for programs, macros, and scripts before reading its text
+          {check.pages ? ` (${check.pages} ${check.pages === 1 ? "page" : "pages"})` : ""}.
+          {check.truncated ? " It was long, so we only read the first part." : ""}
+        </p>
+      )}
+      <details>
+        <summary>What we checked</summary>
+        <ul>
+          {check.checks_run.map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
+        <p className="hash">
+          File fingerprint (SHA-256): <code>{check.sha256}</code>
+        </p>
+      </details>
+    </div>
+  );
+}
 
 function ageText(days: number | null) {
   if (days === null) return null;
@@ -53,6 +95,8 @@ export function Result({ result }: { result: ScanResult }) {
           would catch.
         </p>
       )}
+
+      {result.file_check && <FileSafety check={result.file_check} />}
 
       {result.what_to_do.length > 0 && (
         <div className="block">

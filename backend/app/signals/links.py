@@ -21,6 +21,8 @@ from app.signals.brands import (
 )
 
 # Offline Public Suffix List snapshot bundled with tldextract: no network at startup.
+from app.signals.content import ARCHIVE_EXTENSIONS, PROGRAM_EXTENSIONS  # noqa: E402
+
 _extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 _URL_RE = re.compile(
@@ -172,6 +174,26 @@ def static_checks(url: str) -> LinkReport:
 
     official = official_brand_for(reg)
     report.official_brand = official
+
+    last = parts.path.rstrip("/").rpartition("/")[2].lower()
+    ext = last.rpartition(".")[2] if "." in last else ""
+    if ext in PROGRAM_EXTENSIONS:
+        checks.append(
+            LinkCheck(
+                name="dangerous_download" if not official else "program_download",
+                severity="high" if not official else "low",
+                detail=f"The link downloads a program or app installer (.{ext}). Installing software from a link in a "
+                "message is how scammers take over phones and computers.",
+            )
+        )
+    elif ext in ARCHIVE_EXTENSIONS:
+        checks.append(
+            LinkCheck(
+                name="archive_download",
+                severity="medium",
+                detail=f"The link downloads a compressed file (.{ext}), a common way to sneak malware past filters.",
+            )
+        )
 
     if _is_ip(host):
         checks.append(

@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     max_upload_mb: float = 8.0
     max_text_chars: int = 10_000
     rate_limit_per_minute: int = 10
+
+    # Uploaded documents (PDF, .docx). Read only in a separate, resource-limited process.
+    max_document_pages: int = 30
+    document_timeout_seconds: float = 15.0
+    document_memory_mb: int = 512
+    document_concurrency: int = 2
+    # Optional ClamAV daemon. When set, every document is virus-scanned first, and documents are
+    # refused while it is unreachable (fail closed).
+    clamav_host: str | None = None
+    clamav_port: int = 3310
     trust_proxy_headers: bool = False  # set true when running behind the Next.js proxy
 
     cors_origins: str = "http://localhost:3000"

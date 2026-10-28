@@ -9,11 +9,13 @@ import uuid
 import httpx
 
 from app.config import Settings
+from app.files import Inspection
 from app.llm import LLMResult, LLMUnavailable
 from app.providers import Analyzer
-from app.schemas import LinkCheck, LinkReport, RedFlag, ScanMeta, ScanResponse, ScoreBreakdown
+from app.schemas import FileCheck, LinkCheck, LinkReport, RedFlag, ScanMeta, ScanResponse, ScoreAdjustment, ScoreBreakdown
 from app.scoring import combine, text_model_caps, verdict_for
 from app.signals.blocklist import Blocklist
+from app.signals.content import content_floors, scan_content
 from app.signals.links import age_checks, domain_age_days, extract_urls, normalize_url, static_checks
 from app.signals.patterns import find_patterns
 from app.signals.textmodel import load_default as load_text_model
@@ -38,6 +40,30 @@ DEFAULT_ADVICE = {
         "If you already paid or shared a code or password, call your bank right away and change that password.",
         "Forward scam texts to 7726 (SPAM) and report it at reportfraud.ftc.gov.",
     ],
+}
+
+DANGEROUS_FILE_ADVICE = [
+    "Don't open the file on any computer or phone. Delete it, and delete the message it came with.",
+    "Don't reply or click the links in that message.",
+    "If it claims to be from a company or person you know, contact them using a phone number or website you already trust.",
+    "If you already opened it: disconnect from the internet, run a virus scan, and change important passwords from a different device.",
+    "Report it at reportfraud.ftc.gov.",
+]
+CANT_CHECK_ADVICE = [
+    "Don't open the file unless you were expecting it from someone you know, and you've confirmed with them by phone.",
+    "Ask the sender for a plain PDF, or open it only on a device you don't use for banking.",
+    "If it came with a password in the same message, that is a warning sign: scammers lock files to hide them from security scanners.",
+]
+# Findings that mean "we couldn't look inside" rather than "we saw something bad".
+CANT_CHECK = {
+    "password_protected",
+    "unsupported_file",
+    "legacy_office",
+    "file_is_legacy_office",
+    "file_is_rtf",
+    "file_is_archive",
+    "not_a_word_document",
+    "unreadable_file",
 }
 
 DEGRADED_HEADLINES = {
@@ -81,7 +107,40 @@ class ScanPipeline:
         self.analyzer = analyzer
         self.links = links
 
-    async def run(self, text: str | None, image: tuple[str, str] | None) -> ScanResponse:
+    def blocked_file(self, inspection: Inspection) -> ScanResponse:
+        """A document that failed the safety checks. Its contents were never read or sent to the AI."""
+        check = inspection.check
+        top = check.findings[0] if check.findings else None
+        cant_check = top is not None and top.name in CANT_CHECK
+        score = max(inspection.risk, 60)
+        verdict = verdict_for(score)
+        if cant_check:
+            headline = "We couldn't check this file safely, so we didn't open it. Don't open it yourself either."
+            advice = CANT_CHECK_ADVICE
+        else:
+            headline = "This file can harm your device. Don't open it."
+            advice = DANGEROUS_FILE_ADVICE
+        return ScanResponse(
+            id=str(uuid.uuid4()),
+            risk_score=score,
+            verdict=verdict,
+            headline=headline,
+            scam_type="malware" if not cant_check else "none",
+            channel="unknown",
+            claimed_sender="",
+            red_flags=[RedFlag(title=f.title, detail=f.detail, severity=f.severity, source="file_check") for f in check.findings],
+            safe_signals=[],
+            what_to_do=advice,
+            links=[],
+            extracted_text="",
+            score_breakdown=ScoreBreakdown(
+                ai_score=None, adjustments=[ScoreAdjustment(reason=top.title if top else "Unsafe file", min_score=score)]
+            ),
+            meta=ScanMeta(model=None, latency_ms=0, cost_usd=0.0, input_tokens=0, output_tokens=0, degraded=False),
+            file_check=check,
+        )
+
+    async def run(self, text: str | None, image: tuple[str, str] | None, file_check: FileCheck | None = None) -> ScanResponse:
         started = time.perf_counter()
         reports: dict[str, LinkReport] = {}
 
@@ -111,11 +170,12 @@ class ScanPipeline:
         await check(extract_urls(all_text) + (llm.analysis.urls if llm else []))
         link_reports = list(reports.values())
         patterns = find_patterns(all_text)
+        content = scan_content(all_text)
 
         ai_score = llm.analysis.scam_probability if llm else None
         text_model = load_text_model()
         tm_score = text_model.score(all_text) if text_model and all_text.strip() else None
-        score, applied = combine(ai_score, link_reports, patterns, tm_score)
+        score, applied = combine(ai_score, link_reports, patterns, tm_score, content_floors(content))
         verdict = verdict_for(score)
         capped = text_model_caps(ai_score, tm_score) and not applied and verdict_for(ai_score or 0) != verdict
 
@@ -128,6 +188,12 @@ class ScanPipeline:
                 if c.severity in ("medium", "high"):
                     title = f"Suspicious link: {rep.registrable_domain}"
                     flags.append(RedFlag(title=title, detail=c.detail, severity=c.severity, source="link_check"))
+        for c in content:
+            flags.append(RedFlag(title=c.title, detail=c.detail, severity=c.severity, source="content_check"))
+        if file_check:
+            for f in file_check.findings:
+                if f.severity != "low":
+                    flags.append(RedFlag(title=f.title, detail=f.detail, severity=f.severity, source="file_check"))
         if not llm:
             for hit in patterns:
                 if hit.title.lower() not in seen:
@@ -172,6 +238,7 @@ class ScanPipeline:
             links=link_reports,
             extracted_text=extracted,
             score_breakdown=ScoreBreakdown(ai_score=ai_score, text_model_score=tm_score, adjustments=applied),
+            file_check=file_check,
             meta=ScanMeta(
                 model=llm.model if llm else None,
                 latency_ms=int((time.perf_counter() - started) * 1000),

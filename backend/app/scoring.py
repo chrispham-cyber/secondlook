@@ -18,6 +18,7 @@ LINK_FLOORS: dict[str, tuple[int, str]] = {
     "userinfo_trick": (85, "A link hides its real destination"),
     "new_domain": (80, "A link goes to a website registered in the last 30 days"),
     "ip_address": (70, "A link goes to a raw IP address"),
+    "dangerous_download": (60, "A link downloads a program or app installer"),
 }
 
 _SEVERITY_POINTS = {"low": 5, "medium": 10, "high": 20}
@@ -79,9 +80,14 @@ def text_model_caps(ai_score: int | None, text_model: int | None) -> bool:
 
 
 def combine(
-    ai_score: int | None, links: list[LinkReport], patterns: list[PatternHit], text_model: int | None = None
+    ai_score: int | None,
+    links: list[LinkReport],
+    patterns: list[PatternHit],
+    text_model: int | None = None,
+    extra_floors: list[ScoreAdjustment] | None = None,
 ) -> tuple[int, list[ScoreAdjustment]]:
-    adjustments = floors(links, patterns)
+    """extra_floors: from checks outside links and wording, such as hidden characters or a risky file."""
+    adjustments = sorted(floors(links, patterns) + (extra_floors or []), key=lambda a: -a.min_score)
     if ai_score is None:
         # No AI: the rules and the text model, whichever is more worried.
         base = max(heuristic_score(links, patterns), text_model or 0)
