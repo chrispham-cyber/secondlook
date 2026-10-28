@@ -6,7 +6,7 @@ Americans reported $15.9B in fraud losses to the FTC in 2025. Most of those scam
 
 ## What it does
 
-- **Screenshot, PDF, Word file, or text in, verdict out.** A 0–100 risk score, a verdict (looks safe / be careful / likely scam / scam), the red flags behind it, and numbered steps to take.
+- **Screenshot, PDF, Word file, or text in, verdict out.** A 0–100 risk score, a verdict (low risk under 25, be careful 25–59, likely scam 60–84, scam 85 and up), the red flags behind it, and numbered steps to take.
 - **An AI reads the message: Claude or a local model.** Claude Opus 5.5 by default, or any vision model running in [Ollama](https://ollama.com) on your own machine (free, and screenshots never leave it). Pick one with `LLM_PROVIDER` in `.env`.
 - **Every link is checked separately.** Claude calls a `check_links` tool mid-analysis. The local-model path runs the same checks itself and hands the results to the model, since smaller models are less reliable at tool calling. The checks are deterministic:
   - brand impersonation (`usps-redelivery.com`)

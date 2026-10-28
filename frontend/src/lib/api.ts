@@ -119,7 +119,7 @@ export async function getStats(): Promise<Stats> {
 }
 
 export const VERDICT_LABEL: Record<Verdict, string> = {
-  likely_safe: "Looks safe",
+  likely_safe: "Low risk",
   suspicious: "Be careful",
   likely_scam: "Likely scam",
   scam: "Scam",

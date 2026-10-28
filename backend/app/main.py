@@ -172,7 +172,7 @@ def create_app(
             if not combined.strip():
                 raise HTTPException(
                     400,
-                    f"This {kind} looks safe, but it has no text we can read (it may be a scanned image). "
+                    f"No hidden code was found in this {kind}, but it has no text we can read (it may be a scanned image). "
                     "Take a screenshot of it and upload that instead.",
                 )
             result = await request.app.state.pipeline.run(combined, None, file_check=check)

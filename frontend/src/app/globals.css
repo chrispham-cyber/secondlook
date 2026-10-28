@@ -770,3 +770,42 @@ details.read dd {
   overflow-wrap: anywhere;
   font-size: 0.82rem;
 }
+
+/* Where the score sits: four bands, the current one inked. */
+.scale {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+.scale li {
+  --tone: var(--safe);
+  padding: 0.45rem 0.5rem 0.4rem;
+  border-top: 4px solid var(--tone);
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.25;
+  opacity: 0.7;
+}
+.scale li[data-tone="caution"] {
+  --tone: var(--caution);
+}
+.scale li[data-tone="danger"] {
+  --tone: var(--danger);
+}
+.scale li[aria-current="true"] {
+  opacity: 1;
+  color: var(--ink);
+  font-weight: 800;
+  border-top-width: 7px;
+  padding-top: 0.3rem;
+}
+.scale-word,
+.scale-range {
+  display: block;
+}
+.scale-range {
+  font-variant-numeric: tabular-nums;
+}

@@ -10,6 +10,27 @@ const TONE: Record<Verdict, "safe" | "caution" | "danger"> = {
   scam: "danger",
 };
 
+// Mirrors verdict_for() in backend/app/scoring.py.
+const SCALE: { verdict: Verdict; range: string }[] = [
+  { verdict: "likely_safe", range: "0–24" },
+  { verdict: "suspicious", range: "25–59" },
+  { verdict: "likely_scam", range: "60–84" },
+  { verdict: "scam", range: "85–100" },
+];
+
+function Scale({ current }: { current: Verdict }) {
+  return (
+    <ol className="scale" aria-label="How the score is read">
+      {SCALE.map((s) => (
+        <li key={s.verdict} data-tone={TONE[s.verdict]} aria-current={s.verdict === current ? "true" : undefined}>
+          <span className="scale-word">{VERDICT_LABEL[s.verdict]}</span>
+          <span className="scale-range">{s.range}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 const SOURCE_LABEL = {
   ai: "Found by reading the message",
   link_check: "Found by checking the link",
@@ -69,6 +90,8 @@ function ageText(days: number | null) {
 export function Result({ result }: { result: ScanResult }) {
   const tone = TONE[result.verdict];
   const scamType = result.scam_type !== "none" ? SCAM_TYPE_LABEL[result.scam_type] ?? null : null;
+  // A low score is not a clean bill of health when something odd was still found.
+  const oddities = result.verdict === "likely_safe" && result.red_flags.some((f) => f.severity !== "low");
 
   return (
     <section className="result" aria-labelledby="verdict-heading">
@@ -88,6 +111,15 @@ export function Result({ result }: { result: ScanResult }) {
           {scamType && <p className="scam-type">Looks like: {scamType}</p>}
         </div>
       </div>
+
+      <Scale current={result.verdict} />
+
+      {oddities && (
+        <p className="degraded" role="note">
+          Low risk doesn’t mean safe. We still found something unusual, listed under “Why we think so”. If it asks for
+          money, a code, or a login, check with the sender another way first.
+        </p>
+      )}
 
       {result.meta.degraded && (
         <p className="degraded" role="note">
