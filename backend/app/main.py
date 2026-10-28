@@ -59,9 +59,10 @@ def create_app(
 
     def client_ip(request: Request) -> str:
         if settings.trust_proxy_headers:
+            # The right-most entry is the one our own proxy added; anything to its left is client-supplied.
             fwd = request.headers.get("x-forwarded-for")
             if fwd:
-                return fwd.split(",")[0].strip()
+                return fwd.split(",")[-1].strip()
         return request.client.host if request.client else "unknown"
 
     @app.get("/api/health")
@@ -124,7 +125,14 @@ def create_app(
         return result
 
     @app.post("/api/scans/{scan_id}/feedback", status_code=204)
-    async def feedback(scan_id: str, body: FeedbackRequest, request: Request) -> None:
+    async def feedback(scan_id: str, body: FeedbackRequest, request: Request):
+        allowed, retry_after = request.app.state.limiter.allow(client_ip(request))
+        if not allowed:
+            return JSONResponse(
+                {"detail": "Too many requests. Please wait a minute and try again."},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
         ok = await run_in_threadpool(request.app.state.store.save_feedback, scan_id, body.correct, body.note)
         if not ok:
             raise HTTPException(404, "Scan not found.")

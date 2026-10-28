@@ -71,7 +71,12 @@ class Store:
         with self.Session.begin() as s:
             if s.get(ScanRow, scan_id) is None:
                 return False
-            s.add(FeedbackRow(scan_id=scan_id, correct=correct, note=note))
+            # One answer per scan: a second submit replaces the first, so the feedback numbers can't be stuffed.
+            row = s.scalar(select(FeedbackRow).where(FeedbackRow.scan_id == scan_id))
+            if row is None:
+                s.add(FeedbackRow(scan_id=scan_id, correct=correct, note=note))
+            else:
+                row.correct, row.note, row.created_at = correct, note, datetime.now(UTC)
             return True
 
     def stats(self) -> StatsResponse:

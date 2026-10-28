@@ -80,6 +80,32 @@ def test_feedback_and_stats(tmp_path):
     assert stats["total_scans"] == 1 and stats["feedback_agreement"] == 1.0
 
 
+def test_feedback_counts_once_per_scan(tmp_path):
+    with make_client(tmp_path, FakeAnalyzer()) as c:
+        scan_id = c.post("/api/scan", data={"text": "hello"}).json()["id"]
+        for _ in range(5):
+            c.post(f"/api/scans/{scan_id}/feedback", json={"correct": True})
+        c.post(f"/api/scans/{scan_id}/feedback", json={"correct": False})
+        stats = c.get("/api/stats").json()
+    assert stats["feedback_agreement"] == 0.0  # the last answer replaced the earlier ones
+
+
+def test_feedback_is_rate_limited(tmp_path):
+    with make_client(tmp_path, FakeAnalyzer(), rate_limit_per_minute=2) as c:
+        scan_id = c.post("/api/scan", data={"text": "hello"}).json()["id"]
+        codes = [c.post(f"/api/scans/{scan_id}/feedback", json={"correct": True}).status_code for _ in range(3)]
+    assert codes[-1] == 429
+
+
+def test_spoofed_forwarded_for_does_not_dodge_the_limit(tmp_path):
+    with make_client(tmp_path, FakeAnalyzer(), rate_limit_per_minute=2, trust_proxy_headers=True) as c:
+        codes = [
+            c.post("/api/scan", data={"text": "hi"}, headers={"X-Forwarded-For": f"10.0.0.{i}, 203.0.113.7"}).status_code
+            for i in range(3)
+        ]
+    assert codes[-1] == 429
+
+
 @pytest.mark.parametrize("limit", [2])
 def test_rate_limit(tmp_path, limit):
     with make_client(tmp_path, FakeAnalyzer(), rate_limit_per_minute=limit) as c:

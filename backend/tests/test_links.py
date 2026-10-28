@@ -97,3 +97,23 @@ def test_disguised_brand_spellings():
 def test_official_domain_uses_main_brand_name():
     assert static_checks("https://www.amazon.com/orders").official_brand == "amazon"
     assert static_checks("https://www.bankofamerica.com").official_brand == "bankofamerica"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Verify now: https://www.paypal.com@evil-login.top/secure",
+        "go to paypal.com@evil-login.top today",
+        "http://user:pass@usps.com.track-pkg.info/x",
+    ],
+)
+def test_userinfo_link_checks_the_real_host(text):
+    [url] = extract_urls(text)
+    report = static_checks(url)
+    assert report.official_brand is None
+    assert report.registrable_domain != "paypal.com"
+    assert "userinfo_trick" in {c.name for c in report.checks}
+
+
+def test_plain_emails_are_not_userinfo_links():
+    assert extract_urls("Email john.smith@gmail.com or help@paypal.com") == []

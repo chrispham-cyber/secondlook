@@ -2,6 +2,9 @@
 name = "secondlook-backend"
 version = "0.1.0"
 description = "Second Look: AI scam checker API"
+authors = [{ name = "Hoang (Chris) Pham" }]
+license = "MIT"
+readme = "../README.md"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=2.3.0",

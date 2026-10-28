@@ -8,7 +8,7 @@ A message counts as flagged at score 60 or above (the 'likely scam' line). Range
 
 | System | Input | Scored | Precision | Scams caught (95% CI) | False alarms (95% CI) | F1 | Injection caught | Median time | Cost / scan |
 |---|---|---|---|---|---|---|---|---|---|
-| Rules only (no AI) | text | 160/160 | 100% | 21% (14–31%) | 0% (0–5%) | 0.35 | 3/8 | 0.05ms | $0 |
+| Rules only (no AI) | text | 160/160 | 100% | 21% (14–31%) | 0% (0–5%) | 0.35 | 3/8 | 0.06ms | $0 |
 | Trained text model only | text | 160/160 | 99% | 92% (85–97%) | 1% (0–7%) | 0.95 | 8/8 | <1ms | $0 |
 | Rules + text model (no AI) | text | 160/160 | 99% | 92% (85–97%) | 1% (0–7%) | 0.95 | 8/8 | <1ms | $0 |
 | AI alone: ollama/qwen3.5-35b | screenshot | 160/160 | 86% | 96% (90–99%) | 16% (10–26%) | 0.91 | 8/8 | 9.5s | $0.000 |
@@ -54,7 +54,7 @@ A message counts as flagged at score 60 or above (the 'likely scam' line). Range
 
 | System | Input | Scored | Precision | Scams caught (95% CI) | False alarms (95% CI) | F1 | Injection caught | Median time | Cost / scan |
 |---|---|---|---|---|---|---|---|---|---|
-| Rules only (no AI) | text | 67/67 | 100% | 43% (29–59%) | 0% (0–11%) | 0.60 | 3/3 | 0.05ms | $0 |
+| Rules only (no AI) | text | 67/67 | 100% | 43% (29–59%) | 0% (0–11%) | 0.60 | 3/3 | 0.06ms | $0 |
 | Trained text model only | text | 67/67 | 100% | 100% (91–100%) | 0% (0–11%) | 1.00 | 3/3 | <1ms | $0 |
 | Rules + text model (no AI) | text | 67/67 | 100% | 100% (91–100%) | 0% (0–11%) | 1.00 | 3/3 | <1ms | $0 |
 | AI alone: ollama/qwen3.5-35b | text | 67/67 | 100% | 100% (91–100%) | 0% (0–11%) | 1.00 | 3/3 | 5.4s | $0.000 |
@@ -66,7 +66,7 @@ A message counts as flagged at score 60 or above (the 'likely scam' line). Range
 - Adding the AI raised scam recall from 21% (rules only) to 95%; most newly caught: romance, other, job or task.
 - Prompt-injection attacks hidden in messages: 8/8 still flagged.
 - Median end-to-end analysis time 6.1s per message at $0.000 per scan.
-- 52 automated backend tests, 91% line coverage; no network or paid API calls needed.
+- 59 automated backend tests, 92% line coverage; no network or paid API calls needed.
 
 ## Caveats
 

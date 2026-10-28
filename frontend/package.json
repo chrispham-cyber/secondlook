@@ -1,5 +1,8 @@
 {
-  "name": "frontend",
+  "name": "secondlook-frontend",
+  "description": "Second Look: scam checker web app",
+  "author": "Hoang (Chris) Pham",
+  "license": "MIT",
   "version": "0.1.0",
   "private": true,
   "scripts": {

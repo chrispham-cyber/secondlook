@@ -26,12 +26,16 @@ _extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 _URL_RE = re.compile(
     r"""(?ix)
     (?<![@\w.-])                              # not part of an email or longer token
-    (?:(?:https?|hxxps?)://)?                  # optional scheme (also defanged hxxp)
+    (?:(?:https?|hxxps?)://(?:[^\s/@<>"'`]+@)?)?  # optional scheme, then optional "user@" that hides the real host
     (?:[a-z0-9¡-￿](?:[a-z0-9¡-￿-]{0,61}[a-z0-9¡-￿])?(?:\.|\[\.\]))+
     [a-z¡-￿]{2,24}                   # TLD
     (?::\d{2,5})?
     (?:/[^\s<>"'`]*)?
     """
+)
+# A schemeless "paypal.com@evil.top": the part before "@" looks like a domain, so it is a disguise, not an email.
+_SCHEMELESS_USERINFO_RE = re.compile(
+    r"(?i)(?<![\w.-])((?:[a-z0-9-]+\.)+[a-z]{2,24})@((?:[a-z0-9-]+\.)+[a-z]{2,24}(?::\d{2,5})?(?:/[^\s<>\"'`]*)?)"
 )
 _IP_URL_RE = re.compile(r"(?i)\bhttps?://\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:/[^\s<>\"']*)?")
 _TRAILING = ".,;:!?)]}'\"…"
@@ -40,8 +44,17 @@ _TRAILING = ".,;:!?)]}'\"…"
 def extract_urls(text: str) -> list[str]:
     """Find URLs and bare domains in free text. Returns normalized, de-duplicated URLs."""
     found: list[str] = []
-    for m in list(_IP_URL_RE.finditer(text)) + list(_URL_RE.finditer(text)):
-        raw = m.group(0).rstrip(_TRAILING)
+    # "paypal.com@evil.top" is a disguise, "john.smith@gmail.com" is an email: only the first counts.
+    disguised = [
+        m
+        for m in _SCHEMELESS_USERINFO_RE.finditer(text)
+        if text[max(0, m.start() - 3) : m.start()] != "://" and _extract(m.group(1)).suffix
+    ]
+    raws = [m.group(0) for m in _IP_URL_RE.finditer(text)] + [m.group(0) for m in disguised]
+    # Skip plain matches inside a disguised link, so "paypal.com" isn't also checked on its own.
+    raws += [m.group(0) for m in _URL_RE.finditer(text) if not any(d.start() <= m.start() < d.end() for d in disguised)]
+    for raw in raws:
+        raw = raw.rstrip(_TRAILING)
         url = normalize_url(raw)
         if url and url not in found:
             found.append(url)
@@ -64,10 +77,14 @@ def normalize_url(raw: str) -> str | None:
         ext = _extract(host)
         if not ext.suffix or not ext.domain:
             return None  # "file.txt", "e.g", etc.
+    # Keep any "user@" part: it is what makes "https://paypal.com@evil.top" a trick, and the
+    # checks must see it. The host is always the real destination after the "@".
+    userinfo = parts.netloc.rpartition("@")[0]
+    userinfo = f"{userinfo}@" if userinfo else ""
     port = f":{parts.port}" if parts.port else ""
     path = parts.path or ""
     query = f"?{parts.query}" if parts.query else ""
-    return f"{parts.scheme.lower()}://{host}{port}{path}{query}"
+    return f"{parts.scheme.lower()}://{userinfo}{host}{port}{path}{query}"
 
 
 def _is_ip(host: str) -> bool:

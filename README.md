@@ -74,7 +74,7 @@ Without an AI the app still runs in rules-only mode for pasted text. `/api/healt
 ## Tests
 
 ```bash
-cd backend && uv run pytest -q   # 52 tests, no network, no API spend (Claude and Ollama are faked)
+cd backend && uv run pytest -q   # 59 tests, no network, no API spend (Claude and Ollama are faked)
 cd frontend && npm run lint && npx tsc --noEmit
 ```
 
@@ -169,3 +169,7 @@ The script never trains on `test.jsonl` or `public.jsonl`, and drops any trainin
 
 - It's a second opinion, not a guarantee. The UI says so and always points people to their bank and to reportfraud.ftc.gov.
 - Domain age and blocklist checks need outbound network access. Set `NETWORK_CHECKS=false` to turn them off.
+
+## License
+
+Code: MIT, see [LICENSE](LICENSE). The public SMS and email datasets keep their own CC BY 4.0 licenses; see `backend/evals/data/README.md`.
