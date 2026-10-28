@@ -23,8 +23,8 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.naive_bayes import ComplementNB
 from sklearn.svm import LinearSVC
 
-from app.signals.textmodel import features
-from training.train_text_model import MIN_DF, SEED, load
+from app.signals.textmodel import features, split_features
+from training.train_text_model import MIN_DF, SEED, fit, load
 
 HERE = Path(__file__).parent
 CACHE = HERE / "cache"
@@ -91,9 +91,20 @@ def make_models(emb: dict[str, np.ndarray]):
 
         return run
 
+    split = {}
+
+    def shipped(tr, he, texts, y, w):
+        # Same as training/train_text_model.py: flag features in their own block outside the TF-IDF norm.
+        for i in list(tr) + list(he):
+            if i not in split:
+                split[i] = split_features(features(texts[i]))
+        vec, clf = fit([split[i] for i in tr], y[tr], w[tr], c=16.0, scale=0.6)
+        return clf.predict_proba(vec.transform([split[i] for i in he]))[:, 1]
+
     models = {
         "TF-IDF + logistic regression (C=4)": tfidf_lr(4.0),
-        "TF-IDF + logistic regression (C=16, shipped)": tfidf_lr(16.0),
+        "TF-IDF + logistic regression (C=16)": tfidf_lr(16.0),
+        "TF-IDF + separate link/handle/code flags + logistic regression (shipped)": shipped,
         "TF-IDF + linear SVM (calibrated)": tfidf_svm,
         "TF-IDF + complement naive Bayes": tfidf_nb,
     }
@@ -146,7 +157,7 @@ def main() -> None:
         print(lines[-1])
     if emb:
         e = next(k for k in oof if "embeddings" in k)
-        avg = (oof["TF-IDF + logistic regression (C=16, shipped)"] + oof[e]) / 2
+        avg = (oof["TF-IDF + separate link/handle/code flags + logistic regression (shipped)"] + oof[e]) / 2
         ap_us, rec, fpr = report(y, avg, us)
         lines.append(
             f"| Average of shipped TF-IDF model and {e.split(' embeddings')[0]} | {average_precision_score(y, avg):.3f} "

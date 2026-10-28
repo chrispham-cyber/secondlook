@@ -4,7 +4,7 @@ import json
 import pytest
 
 from app.scoring import CAP_WHEN_SURE_SAFE, combine
-from app.signals.textmodel import TextModel, features, load_default
+from app.signals.textmodel import TextModel, features, load_default, split_features
 from tests.fakes import FakeAnalyzer, analysis
 from tests.test_api import make_client
 from tests.test_scoring import link
@@ -17,24 +17,35 @@ def test_features_ignore_exact_digits_and_flag_phones():
 
 
 def test_exported_model_matches_scikit_learn(tmp_path):
-    sklearn = pytest.importorskip("sklearn")  # noqa: F841 - training-only dependency
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.linear_model import LogisticRegression
+    pytest.importorskip("sklearn")  # training-only dependency
+    import numpy as np
 
-    texts = ["You won a prize, call now", "see you at lunch", "verify your account at bit.ly/x", "dinner at 7?"] * 3
-    y = [1, 0, 1, 0] * 3
-    vec = TfidfVectorizer(analyzer=features, sublinear_tf=True, lowercase=False)
-    clf = LogisticRegression().fit(vec.fit_transform(texts), y)
-    names = vec.get_feature_names_out()
-    data = {
-        "intercept": float(clf.intercept_[0]),
-        "features": {f: [i, c] for f, i, c in zip(names, vec.idf_, clf.coef_[0], strict=True)},
-    }
+    from training.train_text_model import export, fit
+
+    texts = [
+        "You won a prize, call now",
+        "see you at lunch",
+        "verify your account at usps-redelivery.info",
+        "Track it at https://tools.usps.com/go",
+        "add me @lena_h on telegram",
+        "dinner at 7?",
+    ] * 3
+    y = np.array([1, 0, 1, 0, 1, 0] * 3)
+    feats = [split_features(features(t)) for t in texts]
+    vec, clf = fit(feats, y, np.ones(len(y)), c=4.0, scale=0.6)
     path = tmp_path / "m.json.gz"
-    path.write_bytes(gzip.compress(json.dumps(data).encode()))
+    path.write_bytes(gzip.compress(json.dumps(export(vec, clf, digits=12)).encode()))
     model = TextModel.load(path)
-    for t in ["call now to claim your prize", "lunch tomorrow?", "totally unseen words"]:
-        assert model.probability(t) == pytest.approx(clf.predict_proba(vec.transform([t]))[0, 1], abs=1e-9)
+    assert model.flags  # the link and handle flags are scored outside the TF-IDF block
+    for t in ["call now to claim your prize", "lunch tomorrow?", "totally unseen words", "go to tools.usps.com @bob"]:
+        want = clf.predict_proba(vec.transform([split_features(features(t))]))[0, 1]
+        assert model.probability(t) == pytest.approx(want, abs=1e-9)
+
+
+def test_link_features_know_official_sites():
+    assert "f:link_official" in features("Track it at https://tools.usps.com/go/TrackConfirmAction")
+    assert "f:link_brand_impersonation" in features("Pay the fee at usps-redelivery-help.com")
+    assert "f:handle" in features("Add @HR_Careers_Dept on Telegram") and "f:handle" not in features("mail bob@gmail.com")
 
 
 def test_bundled_model_separates_obvious_cases():

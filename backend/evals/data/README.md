@@ -10,6 +10,7 @@ Sets are split by whether their results were ever used to change the detector. O
 | `dev_public.jsonl` | 200 (100 / 100) | Real SMS from the same public dataset (seed 7) | Yes: same prompt fix. |
 | `dev.jsonl` | 67 (37 / 30) | Written while building the rules | Yes: the brand list was adjusted against it. |
 | `train_us_a.jsonl`, `train_us_b.jsonl` | 400 (200 / 200) | Synthetic, generated the same way in two batches (money and accounts; people and jobs) | Training data for the text model only. Rows 70%+ similar to a test message are dropped at training time. |
+| `train_us_c.jsonl` | 300 (150 / 150) | Synthetic batch aimed at the text model's dev-set errors: real official notices (USPS, 2FA codes, .gov/.edu, emergency alerts) and scams that copy their tone or move the chat to Telegram/WhatsApp | Training only, same filtering. |
 
 Every line has `id`, `label` (`scam` or `legit`), `category`, `text`, and optionally `injection: true` for scams that also try to manipulate an AI checker. Rebuild both public samples with `uv run python -I evals/data/make_public.py` after downloading the source (see the script).
 

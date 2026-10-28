@@ -23,6 +23,27 @@ _URL = re.compile(
 _WORD = re.compile(r"[a-z0-9$£€]+(?:['.][a-z0-9]+)*")
 _PHONE = re.compile(r"\+?\d[\d\s().-]{6,}\d")
 _MONEY = re.compile(r"[$£€]\s?\d|\d\s?(?:usd|gbp|dollars|pounds)\b")
+_HANDLE = re.compile(r"(?<![\w.])@[a-z][a-z0-9_]{2,}\b")  # "@HR_Careers_Dept", not emails
+_CODE = re.compile(r"(?<![\d$£€.,-])(?:[a-z]-)?\d{3}[ -]?\d{3,4}(?![\d,]|-\d)|(?<![\d$£€.,-])\d{4,8}(?![\d.,])")
+
+
+def link_features(text: str) -> list[str]:
+    """What the deterministic link checks say about each link, so the model can tell
+    tools.usps.com from usps-redelivery.info instead of only reading the words around them."""
+    from app.signals.links import extract_urls, static_checks  # local import: links is heavier
+
+    out: list[str] = []
+    for url in extract_urls(text)[:5]:
+        report = static_checks(url)
+        host = report.host or ""
+        if report.official_brand:
+            out.append("f:link_official")
+        elif host.endswith((".gov", ".edu", ".mil")):
+            out.append("f:link_gov_edu")
+        else:
+            out.append("f:link_other")
+        out += [f"f:link_{c.name}" for c in report.checks]
+    return sorted(set(out))
 
 
 def features(text: str) -> list[str]:
@@ -35,6 +56,11 @@ def features(text: str) -> list[str]:
         out.append("f:phone")
     if _MONEY.search(t):
         out.append("f:money")
+    if _HANDLE.search(t):
+        out.append("f:handle")
+    if _CODE.search(t):
+        out.append("f:code")
+    out += link_features(text)
     # Digits become 0 so "call 0906-123-4567" and "call 0871-999-0000" look alike.
     t = re.sub(r"\d", "0", t)
     words = _WORD.findall(t)
@@ -46,26 +72,40 @@ def features(text: str) -> list[str]:
     return out
 
 
+def split_features(feats: list[str]) -> tuple[list[str], set[str]]:
+    """Wording features (TF-IDF, normalized together) and flag features (kept outside the
+    normalization, so a few strong signals like "official link" aren't drowned out by hundreds of
+    character n-grams)."""
+    return [f for f in feats if not f.startswith("f:")], {f for f in feats if f.startswith("f:")}
+
+
 class TextModel:
-    def __init__(self, intercept: float, weights: dict[str, tuple[float, float]], meta: dict) -> None:
+    def __init__(
+        self, intercept: float, weights: dict[str, tuple[float, float]], meta: dict, flags: dict[str, float] | None = None
+    ) -> None:
         self.intercept = intercept
-        self.weights = weights  # feature -> (idf, coefficient)
+        self.weights = weights  # wording feature -> (idf, coefficient)
+        self.flags = flags or {}  # flag feature -> coefficient (already multiplied by its scale)
         self.meta = meta
 
     @classmethod
     def load(cls, path: Path = MODEL_PATH) -> TextModel:
         data = json.loads(gzip.decompress(path.read_bytes()))
-        return cls(data["intercept"], {k: (v[0], v[1]) for k, v in data["features"].items()}, data.get("meta", {}))
+        weights = {k: (v[0], v[1]) for k, v in data["features"].items()}
+        return cls(data["intercept"], weights, data.get("meta", {}), data.get("flags"))
 
     def probability(self, text: str) -> float:
         """Probability (0-1) that the message is a scam. Mirrors scikit-learn's TfidfVectorizer
         (sublinear tf, l2 norm) followed by LogisticRegression.predict_proba."""
-        counts = Counter(f for f in features(text) if f in self.weights)
-        if not counts:
-            return 1 / (1 + math.exp(-self.intercept))
-        vec = {f: (1 + math.log(c)) * self.weights[f][0] for f, c in counts.items()}
-        norm = math.sqrt(sum(v * v for v in vec.values()))
-        z = self.intercept + sum(v / norm * self.weights[f][1] for f, v in vec.items())
+        words, flags = split_features(features(text))
+        if not self.flags:  # older exports kept flags inside the TF-IDF block
+            words, flags = words + sorted(flags), set()
+        z = self.intercept + sum(self.flags.get(f, 0.0) for f in flags)
+        counts = Counter(f for f in words if f in self.weights)
+        if counts:
+            vec = {f: (1 + math.log(c)) * self.weights[f][0] for f, c in counts.items()}
+            norm = math.sqrt(sum(v * v for v in vec.values()))
+            z += sum(v / norm * self.weights[f][1] for f, v in vec.items())
         return 1 / (1 + math.exp(-z))
 
     def score(self, text: str) -> int:
