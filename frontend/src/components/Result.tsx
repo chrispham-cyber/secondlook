@@ -1,0 +1,196 @@
+"use client";
+
+import { useState } from "react";
+import { SCAM_TYPE_LABEL, sendFeedback, VERDICT_LABEL, type ScanResult, type Verdict } from "@/lib/api";
+
+const TONE: Record<Verdict, "safe" | "caution" | "danger"> = {
+  likely_safe: "safe",
+  suspicious: "caution",
+  likely_scam: "danger",
+  scam: "danger",
+};
+
+const SOURCE_LABEL = {
+  ai: "Found by reading the message",
+  link_check: "Found by checking the link",
+  pattern: "Common scam wording",
+} as const;
+
+function ageText(days: number | null) {
+  if (days === null) return null;
+  if (days < 1) return "Website created today";
+  if (days < 60) return `Website created ${days} day${days === 1 ? "" : "s"} ago`;
+  if (days < 730) return `Website about ${Math.round(days / 30)} months old`;
+  return `Website about ${Math.round(days / 365)} years old`;
+}
+
+export function Result({ result }: { result: ScanResult }) {
+  const tone = TONE[result.verdict];
+  const scamType = result.scam_type !== "none" ? SCAM_TYPE_LABEL[result.scam_type] ?? null : null;
+
+  return (
+    <section className="result" aria-labelledby="verdict-heading">
+      <div className="verdict" data-tone={tone}>
+        <div className="stamp" aria-hidden="true">
+          <span className="pct">{result.risk_score}%</span>
+          <span className="word">{VERDICT_LABEL[result.verdict]}</span>
+          <span className="sub">scam risk</span>
+        </div>
+        <div>
+          <h2 id="verdict-heading">
+            <span className="sr-only">
+              {VERDICT_LABEL[result.verdict]}, {result.risk_score} percent scam risk.{" "}
+            </span>
+            {result.headline}
+          </h2>
+          {scamType && <p className="scam-type">Looks like: {scamType}</p>}
+        </div>
+      </div>
+
+      {result.meta.degraded && (
+        <p className="degraded" role="note">
+          The AI reader was unavailable, so this check used link and wording rules only. It may miss scams that a closer read
+          would catch.
+        </p>
+      )}
+
+      {result.what_to_do.length > 0 && (
+        <div className="block">
+          <h3>What to do</h3>
+          <ol className="steps">
+            {result.what_to_do.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {(result.red_flags.length > 0 || result.safe_signals.length > 0) && (
+        <div className="block">
+          <h3>Why we think so</h3>
+          <ul className="flags">
+            {result.red_flags.map((f, i) => (
+              <li key={`r${i}`}>
+                <span className="dot" data-sev={f.severity} aria-hidden="true" />
+                <div>
+                  <strong>
+                    <span className="sr-only">{f.severity} warning: </span>
+                    {f.title}
+                  </strong>
+                  {f.detail && <p>{f.detail}</p>}
+                  <div className="source">{SOURCE_LABEL[f.source]}</div>
+                </div>
+              </li>
+            ))}
+            {result.safe_signals.map((s, i) => (
+              <li key={`s${i}`}>
+                <span className="dot ok" aria-hidden="true" />
+                <div>
+                  <strong>
+                    <span className="sr-only">Reassuring sign: </span>
+                    {s}
+                  </strong>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {result.links.length > 0 && (
+        <div className="block">
+          <h3>Links in the message</h3>
+          <div className="links">
+            {result.links.map((l) => {
+              const age = ageText(l.domain_age_days);
+              return (
+                <div className="link-row" key={l.url}>
+                  <div className="domain">{l.registrable_domain || l.host}</div>
+                  <div className="full">{l.url}</div>
+                  <ul>
+                    {l.official_brand && <li>This is an official {l.official_brand} website.</li>}
+                    {l.on_blocklist && <li>Listed on a public list of known phishing sites.</li>}
+                    {age && <li>{age}</li>}
+                    {l.checks
+                      .filter((c) => c.name !== "blocklist")
+                      .map((c) => (
+                        <li key={c.name}>{c.detail}</li>
+                      ))}
+                    {!l.official_brand && !l.on_blocklist && !age && l.checks.length === 0 && (
+                      <li>No problems found with this address, but that alone doesn’t make it safe.</li>
+                    )}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+          <p className="hint">Don’t open these links to check them. We looked them up without visiting them.</p>
+        </div>
+      )}
+
+      <details className="read">
+        <summary>What we read and how we scored it</summary>
+        {result.extracted_text && <pre>{result.extracted_text}</pre>}
+        <dl>
+          {result.claimed_sender && (
+            <>
+              <dt>Claims to be from</dt>
+              <dd>{result.claimed_sender}</dd>
+            </>
+          )}
+          <dt>AI estimate</dt>
+          <dd>{result.score_breakdown.ai_score === null ? "Not available" : `${result.score_breakdown.ai_score}%`}</dd>
+          {result.score_breakdown.text_model_score != null && (
+            <>
+              <dt>Pattern model estimate</dt>
+              <dd>{result.score_breakdown.text_model_score}% (trained on thousands of real texts)</dd>
+            </>
+          )}
+          {result.score_breakdown.adjustments.map((a, i) => (
+            <div key={i} style={{ display: "contents" }}>
+              <dt>Raised to {a.min_score}%</dt>
+              <dd>{a.reason}</dd>
+            </div>
+          ))}
+          <dt>Checked in</dt>
+          <dd>{(result.meta.latency_ms / 1000).toFixed(1)} seconds</dd>
+        </dl>
+      </details>
+
+      <Feedback scanId={result.id} />
+    </section>
+  );
+}
+
+function Feedback({ scanId }: { scanId: string }) {
+  const [state, setState] = useState<"idle" | "sent" | "error">("idle");
+
+  async function send(correct: boolean) {
+    try {
+      await sendFeedback(scanId, correct);
+      setState("sent");
+    } catch {
+      setState("error");
+    }
+  }
+
+  if (state === "sent") {
+    return (
+      <p className="feedback" role="status">
+        Thanks. Your answer helps us measure how often the checker is right.
+      </p>
+    );
+  }
+  return (
+    <div className="feedback">
+      <p id="fb-q">Was this answer right?</p>
+      <button type="button" className="btn secondary" aria-describedby="fb-q" onClick={() => send(true)}>
+        Yes
+      </button>
+      <button type="button" className="btn secondary" aria-describedby="fb-q" onClick={() => send(false)}>
+        No
+      </button>
+      {state === "error" && <span className="hint">Couldn’t send that. Try again.</span>}
+    </div>
+  );
+}

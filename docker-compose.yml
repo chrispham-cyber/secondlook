@@ -1,0 +1,54 @@
+# One command to run everything locally:  docker compose up --build
+# Then open http://localhost:3000
+services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://secondlook:secondlook@db:5432/secondlook
+      TRUST_PROXY_HEADERS: "true"   # only the Next.js proxy can reach it inside this network
+      CORS_ORIGINS: http://localhost:3000
+      # With LLM_PROVIDER=ollama in .env, the container reaches the Ollama app running on your Mac.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: secondlook
+      POSTGRES_PASSWORD: secondlook
+      POSTGRES_DB: secondlook
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secondlook"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
