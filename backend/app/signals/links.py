@@ -26,7 +26,7 @@ _extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 _URL_RE = re.compile(
     r"""(?ix)
     (?<![@\w.-])                              # not part of an email or longer token
-    (?:(?:https?|hxxps?)://(?:[^\s/@<>"'`]+@)?)?  # optional scheme, then optional "user@" that hides the real host
+    (?:(?:https?|hxxps?)://(?:[^\s/\\@<>"'`]+@)?)?  # optional scheme, then optional "user@" that hides the real host
     (?:[a-z0-9¡-￿](?:[a-z0-9¡-￿-]{0,61}[a-z0-9¡-￿])?(?:\.|\[\.\]))+
     [a-z¡-￿]{2,24}                   # TLD
     (?::\d{2,5})?
@@ -62,7 +62,8 @@ def extract_urls(text: str) -> list[str]:
 
 
 def normalize_url(raw: str) -> str | None:
-    raw = raw.strip().strip("<>").replace("[.]", ".")
+    # Browsers read "\\" as "/" in web addresses, so "https://evil.top\\@paypal.com" opens evil.top.
+    raw = raw.strip().strip("<>").replace("[.]", ".").replace("\\", "/")
     raw = re.sub(r"(?i)^hxxp", "http", raw)
     if not re.match(r"(?i)^https?://", raw):
         raw = "http://" + raw

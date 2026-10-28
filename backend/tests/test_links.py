@@ -117,3 +117,9 @@ def test_userinfo_link_checks_the_real_host(text):
 
 def test_plain_emails_are_not_userinfo_links():
     assert extract_urls("Email john.smith@gmail.com or help@paypal.com") == []
+
+
+def test_backslash_link_checks_the_host_a_browser_opens():
+    [url] = extract_urls("Log in: https://evil.top\\@paypal.com/login")
+    report = static_checks(url)
+    assert report.host == "evil.top" and report.official_brand is None

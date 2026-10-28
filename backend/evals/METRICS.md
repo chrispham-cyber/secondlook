@@ -66,7 +66,7 @@ A message counts as flagged at score 60 or above (the 'likely scam' line). Range
 - Adding the AI raised scam recall from 21% (rules only) to 95%; most newly caught: romance, other, job or task.
 - Prompt-injection attacks hidden in messages: 8/8 still flagged.
 - Median end-to-end analysis time 6.1s per message at $0.000 per scan.
-- 59 automated backend tests, 92% line coverage; no network or paid API calls needed.
+- 60 automated backend tests, 92% line coverage; no network or paid API calls needed.
 
 ## Caveats
 

@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, create_engine, func, select
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, create_engine, func, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from app.schemas import ScanResponse, StatsResponse
@@ -34,7 +35,7 @@ class ScanRow(Base):
 class FeedbackRow(Base):
     __tablename__ = "feedback"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    scan_id: Mapped[str] = mapped_column(ForeignKey("scans.id"), index=True)
+    scan_id: Mapped[str] = mapped_column(ForeignKey("scans.id"), unique=True)  # one answer per scan
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     correct: Mapped[bool] = mapped_column(Boolean)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -48,6 +49,7 @@ class Store:
         self.engine = create_engine(url, **kwargs)
         self.Session = sessionmaker(self.engine, expire_on_commit=False)
         Base.metadata.create_all(self.engine)
+        self._ensure_one_feedback_per_scan()
 
     def save_scan(self, scan: ScanResponse, input_kind: str) -> None:
         with self.Session.begin() as s:
@@ -67,17 +69,26 @@ class Store:
                 )
             )
 
+    def _ensure_one_feedback_per_scan(self) -> None:
+        """Databases made before scan_id was unique: keep each scan's newest answer, then add the index."""
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM feedback WHERE id NOT IN (SELECT MAX(id) FROM feedback GROUP BY scan_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_feedback_scan_id ON feedback (scan_id)"))
+
     def save_feedback(self, scan_id: str, correct: bool, note: str | None) -> bool:
         with self.Session.begin() as s:
             if s.get(ScanRow, scan_id) is None:
                 return False
-            # One answer per scan: a second submit replaces the first, so the feedback numbers can't be stuffed.
-            row = s.scalar(select(FeedbackRow).where(FeedbackRow.scan_id == scan_id))
-            if row is None:
-                s.add(FeedbackRow(scan_id=scan_id, correct=correct, note=note))
-            else:
-                row.correct, row.note, row.created_at = correct, note, datetime.now(UTC)
-            return True
+        # One answer per scan: a second submit replaces the first, so the feedback numbers can't be stuffed.
+        # The unique constraint makes this hold even when two submits race.
+        values = {"correct": correct, "note": note, "created_at": datetime.now(UTC)}
+        try:
+            with self.Session.begin() as s:
+                s.add(FeedbackRow(scan_id=scan_id, **values))
+        except IntegrityError:
+            with self.Session.begin() as s:
+                s.execute(update(FeedbackRow).where(FeedbackRow.scan_id == scan_id).values(**values))
+        return True
 
     def stats(self) -> StatsResponse:
         with Session(self.engine) as s:
