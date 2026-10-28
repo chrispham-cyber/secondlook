@@ -139,13 +139,16 @@ uv run python -m evals.summarize --tests                 # newest run per set an
 | Set | System | Precision | Scams caught | False alarms | F1 |
 |---|---|---|---|---|---|
 | Blind test (160) | Rules only | 100% | 21% | 0% | 0.35 |
-| Blind test (160) | Rules + text model, no AI | 99% | 92% | 1% | 0.95 |
-| Blind test (160) | AI alone | 93% | 95% | 8% | 0.94 |
-| Blind test (160) | **Shipped: AI + rules + text model** | **97%** | **95%** | **2%** | **0.96** |
+| Blind test (160) | Rules + text model, no AI | 100% | 93% | 0% | 0.96 |
+| Blind test (160) | AI alone | 94% | 95% | 6% | 0.94 |
+| Blind test (160) | **Shipped: AI + rules + text model** | **100%** | **95%** | **0%** | **0.97** |
 | Blind test, as screenshots | Shipped | 94% | 96% | 6% | 0.95 |
 | Real public SMS (200) | Rules only | 0% | 0% | 0% | 0.00 |
-| Real public SMS (200) | AI alone | 87% | 98% | 15% | 0.92 |
+| Real public SMS (200) | Rules + text model, no AI | 100% | 99% | 0% | 0.99 |
+| Real public SMS (200) | AI alone | 89% | 98% | 12% | 0.93 |
 | Real public SMS (200) | **Shipped** | **99%** | **98%** | **1%** | **0.98** |
+
+On screenshots the AI alone raises more false alarms than on the same messages as text (15% vs 6%), and that carries into the shipped score.
 
 All 8 prompt-injection attacks in the blind test were still flagged by every AI configuration.
 
