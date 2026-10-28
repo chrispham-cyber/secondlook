@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { SCAM_TYPE_LABEL, sendFeedback, VERDICT_LABEL, type FileCheck, type ScanResult, type Verdict } from "@/lib/api";
 
-const TONE: Record<Verdict, "safe" | "caution" | "danger"> = {
+// Four bands, four inks: green, yellow, orange, red.
+const TONE: Record<Verdict, "safe" | "caution" | "alert" | "danger"> = {
   likely_safe: "safe",
   suspicious: "caution",
-  likely_scam: "danger",
+  likely_scam: "alert",
   scam: "danger",
 };
 
