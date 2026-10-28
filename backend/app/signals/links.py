@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import time
+import unicodedata
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
@@ -22,6 +23,7 @@ from app.signals.brands import (
 
 # Offline Public Suffix List snapshot bundled with tldextract: no network at startup.
 from app.signals.content import ARCHIVE_EXTENSIONS, PROGRAM_EXTENSIONS  # noqa: E402
+from app.signals.idn import analyze_host, label_to_ascii  # noqa: E402
 
 _extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
@@ -46,6 +48,7 @@ _TRAILING = ".,;:!?)]}'\"…"
 def extract_urls(text: str) -> list[str]:
     """Find URLs and bare domains in free text. Returns normalized, de-duplicated URLs."""
     found: list[str] = []
+    text = text.replace("\u3002", ".")  # browsers treat the ideographic full stop as a dot in addresses
     # "paypal.com@evil.top" is a disguise, "john.smith@gmail.com" is an email: only the first counts.
     disguised = [
         m
@@ -73,7 +76,8 @@ def normalize_url(raw: str) -> str | None:
         parts = urlsplit(raw)
     except ValueError:
         return None
-    host = (parts.hostname or "").lower().rstrip(".")
+    # Browsers fold fullwidth and styled letters to plain ones (UTS #46), so do the same.
+    host = unicodedata.normalize("NFKC", parts.hostname or "").lower().rstrip(".")
     if not host:
         return None
     if not _is_ip(host):
@@ -84,7 +88,10 @@ def normalize_url(raw: str) -> str | None:
     # checks must see it. The host is always the real destination after the "@".
     userinfo = parts.netloc.rpartition("@")[0]
     userinfo = f"{userinfo}@" if userinfo else ""
-    port = f":{parts.port}" if parts.port else ""
+    try:
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return None
     path = parts.path or ""
     query = f"?{parts.query}" if parts.query else ""
     return f"{parts.scheme.lower()}://{userinfo}{host}{port}{path}{query}"
@@ -167,13 +174,17 @@ def _lookalike_of(reg_domain: str) -> str | None:
 def static_checks(url: str) -> LinkReport:
     """Checks that need no network access."""
     parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
+    host = unicodedata.normalize("NFKC", parts.hostname or "").lower()
     reg = registrable_domain(host)
     report = LinkReport(url=url, host=host, registrable_domain=reg)
     checks: list[LinkCheck] = []
 
-    official = official_brand_for(reg)
+    forms = analyze_host(host)
+    # Invisible characters make it unclear which site really opens, so never vouch for such a link.
+    official = None if forms.hidden_characters else official_brand_for(reg)
     report.official_brand = official
+    report.host_ascii, report.host_unicode, report.scripts = forms.ascii, forms.unicode, forms.scripts
+    shown = f"{forms.unicode} (real address: {forms.ascii})" if forms.international else reg
 
     last = parts.path.rstrip("/").rpartition("/")[2].lower()
     ext = last.rpartition(".")[2] if "." in last else ""
@@ -201,35 +212,36 @@ def static_checks(url: str) -> LinkReport:
                 name="ip_address", severity="high", detail="The link points to a raw IP address instead of a company website."
             )
         )
-    if "xn--" in host:
-        checks.append(
-            LinkCheck(
-                name="punycode",
-                severity="high",
-                detail="The address uses look-alike international characters, a common disguise.",
-            )
-        )
+    checks += _script_checks(forms, reg, shown)
+    disguised = any(c.name in ("homograph", "hidden_characters_in_address") for c in checks)
+    if any(c.name == "homograph" for c in checks):
+        report.looks_like = registrable_domain(forms.skeleton)
     if "@" in (parts.netloc or ""):
         checks.append(
             LinkCheck(name="userinfo_trick", severity="high", detail="The link contains '@', which hides the real destination.")
         )
 
-    if not official and not _is_ip(host):
-        brands = _mentioned_brands(host)
+    # Brand checks run on what the address looks like, so "аррӏе-support.com" counts as "apple-support.com".
+    look = forms.skeleton if forms.international else host
+    look_reg = registrable_domain(look)
+    if not official and not disguised and not _is_ip(host):
+        brands = _mentioned_brands(look)
         if brands and not brands[0][1]:
             b = brands[0][0]
             real = ", ".join(BRANDS[b][:2]) if BRANDS[b] else "an official site"
             checks.append(
                 LinkCheck(
-                    name="brand_impersonation", severity="high", detail=f"Mentions '{b}' but the site is {reg}, not {real}."
+                    name="brand_impersonation", severity="high", detail=f"Mentions '{b}' but the site is {shown}, not {real}."
                 )
             )
         else:
-            twin = BRANDS[brands[0][0]][0] if brands and BRANDS[brands[0][0]] else _lookalike_of(reg)
+            twin = BRANDS[brands[0][0]][0] if brands and BRANDS[brands[0][0]] else _lookalike_of(look_reg)
             if twin:
                 checks.append(
                     LinkCheck(
-                        name="lookalike_domain", severity="high", detail=f"{reg} imitates {twin} by swapping look-alike letters."
+                        name="lookalike_domain",
+                        severity="high",
+                        detail=f"{shown} imitates {twin} by swapping look-alike letters.",
                     )
                 )
 
@@ -260,6 +272,72 @@ def static_checks(url: str) -> LinkReport:
 
     report.checks = checks
     return report
+
+
+def _script_checks(forms, reg: str, shown: str) -> list[LinkCheck]:
+    """Alphabet tricks: Cyrillic or Greek letters posing as English ones, mixed alphabets, invisible characters."""
+    out: list[LinkCheck] = []
+    look_reg = registrable_domain(forms.skeleton)
+    if forms.international and look_reg in OFFICIAL_DOMAINS and look_reg != registrable_domain(forms.unicode):
+        alphabets = " and ".join(s for s in forms.scripts if s != "Latin") or "accented or unusual"
+        out.append(
+            LinkCheck(
+                name="homograph",
+                severity="high",
+                detail=f"{forms.unicode} is written with {alphabets} letters to look exactly like {look_reg}. It is a "
+                f"different website: the address your device really opens is {forms.ascii}.",
+            )
+        )
+    if forms.hidden_characters:
+        out.append(
+            LinkCheck(
+                name="hidden_characters_in_address",
+                severity="high",
+                detail=f"The address contains invisible characters. It reads as {forms.unicode}, but hidden characters "
+                "are only used to disguise links or slip them past filters, so don't trust it.",
+            )
+        )
+    for label, scripts in forms.mixed_labels[:1]:
+        out.append(
+            LinkCheck(
+                name="mixed_scripts",
+                severity="high",
+                detail=f'The name "{label}" mixes {" and ".join(scripts)} letters. Real company addresses never mix '
+                "alphabets; it is done so a fake address looks like a familiar one.",
+            )
+        )
+    if forms.pretend_latin and not out:
+        out.append(
+            LinkCheck(
+                name="fake_latin_letters",
+                severity="high",
+                detail=f'"{forms.pretend_latin[0]}" is written in {forms.scripts[0]} letters that all look like '
+                f"English ones. The real address is {forms.ascii}.",
+            )
+        )
+    if forms.international and not out:
+        alphabets = ", ".join(forms.scripts) or "international"
+        out.append(
+            LinkCheck(
+                name="international_domain",
+                severity="low",
+                detail=f"The address uses {alphabets} letters ({forms.unicode}). Its real form is {forms.ascii}. "
+                "That is normal for sites in other languages, but unusual in a message from a US company.",
+            )
+        )
+    if not forms.international and any(p.startswith("xn--") for p in forms.ascii.split(".")):
+        out.append(
+            LinkCheck(
+                name="punycode",
+                severity="medium",
+                detail="The address uses an encoded international name that can't be read, a sign of a disguise.",
+            )
+        )
+    return out
+
+
+def ascii_domain(domain: str) -> str:
+    return ".".join(label_to_ascii(label) for label in domain.split("."))
 
 
 # ---------- Domain age via RDAP ----------

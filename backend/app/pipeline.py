@@ -16,7 +16,14 @@ from app.schemas import FileCheck, LinkCheck, LinkReport, RedFlag, ScanMeta, Sca
 from app.scoring import combine, text_model_caps, verdict_for
 from app.signals.blocklist import Blocklist
 from app.signals.content import content_floors, scan_content
-from app.signals.links import age_checks, domain_age_days, extract_urls, normalize_url, static_checks
+from app.signals.links import (
+    age_checks,
+    ascii_domain,
+    domain_age_days,
+    extract_urls,
+    normalize_url,
+    static_checks,
+)
 from app.signals.patterns import find_patterns
 from app.signals.textmodel import load_default as load_text_model
 
@@ -86,7 +93,10 @@ class LinkAnalyzer:
 
     async def analyze(self, url: str) -> LinkReport:
         report = static_checks(url)
-        report.on_blocklist = self.blocklist.match(url)
+        ascii_host = report.host_ascii or report.host
+        report.on_blocklist = self.blocklist.match(url) or (
+            ascii_host != report.host and self.blocklist.match(url.replace(report.host, ascii_host, 1))
+        )
         if report.on_blocklist:
             report.checks.insert(
                 0,
@@ -96,7 +106,9 @@ class LinkAnalyzer:
             )
         is_ip = report.host == report.registrable_domain and report.host.replace(".", "").isdigit()
         if self.settings.network_checks and not report.official_brand and not is_ip:
-            age, exists = await domain_age_days(self.http, report.registrable_domain, self.settings.rdap_timeout_seconds)
+            age, exists = await domain_age_days(
+                self.http, ascii_domain(report.registrable_domain), self.settings.rdap_timeout_seconds
+            )
             age_checks(report, age, exists)
         return report
 

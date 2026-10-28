@@ -17,7 +17,22 @@ export interface LinkReport {
   official_brand: string | null;
   domain_age_days: number | null;
   on_blocklist: boolean;
+  host_ascii?: string | null;
+  host_unicode?: string | null;
+  scripts?: string[];
+  looks_like?: string | null;
   checks: { name: string; detail: string; severity: Severity }[];
+}
+
+export interface DomainCheck {
+  url: string;
+  risk_score: number;
+  verdict: Verdict;
+  headline: string;
+  facts: string[];
+  what_to_do: string[];
+  link: LinkReport;
+  network_checked: boolean;
 }
 
 export interface FileCheck {
@@ -96,6 +111,21 @@ export async function scanMessage(input: { image?: File | null; text?: string })
   let res: Response;
   try {
     res = await fetch("/api/scan", { method: "POST", body: form });
+  } catch {
+    throw new ApiError("Couldn't reach the checker. Check your internet connection and try again.");
+  }
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  return res.json();
+}
+
+export async function checkDomain(domain: string): Promise<DomainCheck> {
+  let res: Response;
+  try {
+    res = await fetch("/api/domain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: domain.trim() }),
+    });
   } catch {
     throw new ApiError("Couldn't reach the checker. Check your internet connection and try again.");
   }

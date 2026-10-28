@@ -13,12 +13,13 @@ from fastapi.responses import JSONResponse
 
 from app.config import Settings, get_settings
 from app.db import Store
+from app.domaincheck import NotAnAddress, check_domain
 from app.files import AntivirusUnavailable, DocumentInspector
 from app.images import ImageError, prepare_image
 from app.pipeline import LinkAnalyzer, ScanPipeline, ScanUnavailable
 from app.providers import Analyzer, make_analyzer, model_label
 from app.ratelimit import RateLimiter
-from app.schemas import FeedbackRequest, ScanResponse, StatsResponse
+from app.schemas import DomainCheckRequest, DomainCheckResponse, FeedbackRequest, ScanResponse, StatsResponse
 from app.signals.blocklist import Blocklist
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -195,6 +196,20 @@ def create_app(
             result.risk_score,
         )
         return result
+
+    @app.post("/api/domain", response_model=DomainCheckResponse)
+    async def domain(body: DomainCheckRequest, request: Request):
+        allowed, retry_after = request.app.state.limiter.allow(client_ip(request))
+        if not allowed:
+            return JSONResponse(
+                {"detail": "Too many checks. Please wait a minute and try again."},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
+        try:
+            return await check_domain(body.domain, request.app.state.pipeline.links, network=settings.network_checks)
+        except NotAnAddress:
+            raise HTTPException(400, "That doesn't look like a website address. Try something like example.com.") from None
 
     @app.post("/api/scans/{scan_id}/feedback", status_code=204)
     async def feedback(scan_id: str, body: FeedbackRequest, request: Request):

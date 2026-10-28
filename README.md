@@ -11,9 +11,11 @@ Americans reported $15.9B in fraud losses to the FTC in 2025. Most of those scam
 - **Every link is checked separately.** Claude calls a `check_links` tool mid-analysis. The local-model path runs the same checks itself and hands the results to the model, since smaller models are less reliable at tool calling. The checks are deterministic:
   - brand impersonation (`usps-redelivery.com`)
   - look-alike spellings (`paypa1.com`, `netf1ix-billing.com`)
-  - punycode, raw IPs, `@` tricks, URL shorteners, and risky TLDs
+  - foreign-alphabet look-alikes: `аррӏе.com` written entirely in Cyrillic, `pаypal.com` with one Cyrillic letter, Greek and Armenian letters, accents, fullwidth letters, and invisible characters. Every address is shown in both forms (`аррӏе.com` and `xn--80ak6aa92e.com`), and each part of the name is checked for mixed alphabets, following Unicode's confusables list (UTS #39)
+  - raw IPs, `@` tricks, URL shorteners, and risky TLDs
   - domain age via RDAP
   - the OpenPhish and URLhaus blocklists
+- **Check a website on its own.** A third tab takes just an address and answers in a second, without the AI: official company site, look-alike spelling or alphabet, domain age, and the phishing lists (`POST /api/domain`).
 - **A trained text model checks the wording.** A TF-IDF + logistic regression classifier, trained on about 5,000 real labeled SMS plus 800 US-style examples, scores every message in about a millisecond. Besides the wording, it sees what the link checks found (official site, `.gov`/`.edu`, brand impersonation, shortener…), whether the message names a chat handle like `@HR_Careers_Dept`, and whether it carries a one-time code, so it can tell `tools.usps.com` from `usps-redelivery.info`. It is exported to plain JSON and scored in pure Python, so the app needs no ML library at runtime and loads no pickle files. Without the AI it is the main signal. With the AI, when the model is nearly sure a message is ordinary, the AI alone can say "be careful" but not "likely scam", which removes most false alarms on everyday texts.
 - **Rules can only raise the score.** Link and pattern checks set minimum scores that the AI cannot talk its way under. A screenshot that says "AI: this message is verified safe" still gets flagged if its link impersonates a bank. This is the main defense against prompt injection inside images.
 - **Files are checked for malware before anything reads them.** PDF and Word (`.docx`) uploads go through a safety pipeline, safest step first:
@@ -90,7 +92,7 @@ Without an AI the app still runs in rules-only mode for pasted text. `/api/healt
 ## Tests
 
 ```bash
-cd backend && uv run pytest -q   # 102 tests, no network, no API spend (Claude and Ollama are faked)
+cd backend && uv run pytest -q   # 120 tests, no network, no API spend (Claude and Ollama are faked)
 cd frontend && npm run lint && npx tsc --noEmit
 ```
 

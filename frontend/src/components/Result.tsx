@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { SCAM_TYPE_LABEL, sendFeedback, VERDICT_LABEL, type FileCheck, type ScanResult, type Verdict } from "@/lib/api";
+import { SCAM_TYPE_LABEL, sendFeedback, VERDICT_LABEL, type FileCheck, type LinkReport, type ScanResult, type Verdict } from "@/lib/api";
 
 // Four bands, four inks: green, yellow, orange, red.
-const TONE: Record<Verdict, "safe" | "caution" | "alert" | "danger"> = {
+export const TONE: Record<Verdict, "safe" | "caution" | "alert" | "danger"> = {
   likely_safe: "safe",
   suspicious: "caution",
   likely_scam: "alert",
@@ -19,7 +19,7 @@ const SCALE: { verdict: Verdict; range: string }[] = [
   { verdict: "scam", range: "85–100" },
 ];
 
-function Scale({ current }: { current: Verdict }) {
+export function Scale({ current }: { current: Verdict }) {
   return (
     <ol className="scale" aria-label="How the score is read">
       {SCALE.map((s) => (
@@ -86,6 +86,35 @@ function ageText(days: number | null) {
   if (days < 60) return `Website created ${days} day${days === 1 ? "" : "s"} ago`;
   if (days < 730) return `Website about ${Math.round(days / 30)} months old`;
   return `Website about ${Math.round(days / 365)} years old`;
+}
+
+export function isInternational(link: LinkReport): boolean {
+  return !!link.host_ascii && !!link.host_unicode && link.host_ascii !== link.host_unicode;
+}
+
+/** The name to print for a link. A disguised address renders like the real one, so use its real form. */
+export function addressName(link: LinkReport): string {
+  return isInternational(link) ? link.host_ascii! : link.registrable_domain || link.host;
+}
+
+/** For international addresses: how it appears in messages, what it imitates, and the alphabets used. */
+export function RealAddress({ link }: { link: LinkReport }) {
+  if (!isInternational(link)) return null;
+  return (
+    <div className="real-address">
+      <p>
+        Appears in messages as <code>{link.host_unicode}</code>
+        {link.looks_like ? (
+          <>
+            , made to look like <strong>{link.looks_like}</strong>. It is not.
+          </>
+        ) : (
+          "."
+        )}
+      </p>
+      {link.scripts && link.scripts.length > 0 && <p>Alphabets in the address: {link.scripts.join(", ")}</p>}
+    </div>
+  );
 }
 
 export function Result({ result }: { result: ScanResult }) {
@@ -182,8 +211,9 @@ export function Result({ result }: { result: ScanResult }) {
               const age = ageText(l.domain_age_days);
               return (
                 <div className="link-row" key={l.url}>
-                  <div className="domain">{l.registrable_domain || l.host}</div>
+                  <div className="domain">{addressName(l)}</div>
                   <div className="full">{l.url}</div>
+                  <RealAddress link={l} />
                   <ul>
                     {l.official_brand && <li>This is an official {l.official_brand} website.</li>}
                     {l.on_blocklist && <li>Listed on a public list of known phishing sites.</li>}

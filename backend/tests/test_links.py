@@ -53,7 +53,7 @@ def test_lookalike_domain():
 
 def test_other_static_signals():
     assert "ip_address" in names("http://45.13.22.8/verify")
-    assert "punycode" in names("https://xn--pypal-4ve.com")
+    assert "homograph" in names("https://xn--pypal-4ve.com")  # pаypal with a Cyrillic "а"
     assert "url_shortener" in names("https://bit.ly/3xYz")
     assert "risky_tld" in names("https://claim-reward.top")
 

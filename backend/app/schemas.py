@@ -110,6 +110,10 @@ class LinkReport(BaseModel):
     host: str
     registrable_domain: str
     official_brand: str | None = None  # set when the domain IS a known official domain
+    host_ascii: str | None = None  # the "xn--" form a browser actually visits
+    host_unicode: str | None = None  # the form a person may see
+    scripts: list[str] = []  # alphabets used in the address (Latin, Cyrillic, Greek...)
+    looks_like: str | None = None  # the real company address a disguised one imitates
     domain_age_days: int | None = None
     on_blocklist: bool = False
     checks: list[LinkCheck] = []
@@ -182,6 +186,21 @@ class ScanResponse(BaseModel):
     score_breakdown: ScoreBreakdown
     meta: ScanMeta
     file_check: FileCheck | None = None
+
+
+class DomainCheckRequest(BaseModel):
+    domain: str = Field(min_length=1, max_length=2000)
+
+
+class DomainCheckResponse(BaseModel):
+    url: str
+    risk_score: int = Field(ge=0, le=100)
+    verdict: Verdict
+    headline: str
+    facts: list[str]
+    what_to_do: list[str]
+    link: LinkReport
+    network_checked: bool
 
 
 class FeedbackRequest(BaseModel):

@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, isDocument, scanMessage, type ScanResult } from "@/lib/api";
+import { ApiError, checkDomain, isDocument, scanMessage, type DomainCheck, type ScanResult } from "@/lib/api";
+import { DomainResult } from "./DomainResult";
 import { Result } from "./Result";
 
-type Mode = "screenshot" | "text";
+type Mode = "screenshot" | "text" | "website";
 
 const STEPS = ["Reading the message…", "Checking the links…", "Comparing with known scams…", "Writing up what we found…"];
 const DOC_STEPS = [
@@ -13,6 +14,7 @@ const DOC_STEPS = [
   "Checking the links…",
   "Writing up what we found…",
 ];
+const SITE_STEPS = ["Checking the address…", "Looking up who registered it…"];
 const MAX_MB = 8;
 const ACCEPT =
   "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,.heic,.heif," +
@@ -29,6 +31,8 @@ export function Checker() {
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [site, setSite] = useState("");
+  const [siteResult, setSiteResult] = useState<DomainCheck | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
 
   const pick = useCallback((f: File | undefined | null) => {
@@ -68,7 +72,12 @@ export function Checker() {
     setPreview(f && !isDocument(f) ? URL.createObjectURL(f) : null);
   }
 
-  const steps = file && isDocument(file) && mode === "screenshot" ? DOC_STEPS : STEPS;
+  const steps =
+    mode === "website"
+      ? SITE_STEPS
+      : file && isDocument(file) && mode === "screenshot"
+        ? DOC_STEPS
+        : STEPS;
 
   // Paste a screenshot from the clipboard anywhere on the page.
   useEffect(() => {
@@ -89,7 +98,8 @@ export function Checker() {
     return () => clearInterval(id);
   }, [busy, steps.length]);
 
-  const canSubmit = !busy && (mode === "screenshot" ? !!file : text.trim().length > 0);
+  const canSubmit =
+    !busy && (mode === "screenshot" ? !!file : mode === "text" ? text.trim().length > 0 : site.trim().length > 0);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -98,10 +108,15 @@ export function Checker() {
     setBusy(true);
     setError(null);
     setResult(null);
+    setSiteResult(null);
     try {
-      const r =
-        mode === "screenshot" ? await scanMessage({ image: file, text: note }) : await scanMessage({ text });
-      setResult(r);
+      if (mode === "website") {
+        setSiteResult(await checkDomain(site));
+      } else {
+        const r =
+          mode === "screenshot" ? await scanMessage({ image: file, text: note }) : await scanMessage({ text });
+        setResult(r);
+      }
       requestAnimationFrame(() => resultRef.current?.focus());
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
@@ -115,6 +130,8 @@ export function Checker() {
     setText("");
     setNote("");
     setResult(null);
+    setSite("");
+    setSiteResult(null);
     setError(null);
   }
 
@@ -128,6 +145,9 @@ export function Checker() {
           <button type="button" aria-pressed={mode === "text"} onClick={() => setMode("text")}>
             Paste text or a link
           </button>
+          <button type="button" aria-pressed={mode === "website"} onClick={() => setMode("website")}>
+            Check a website
+          </button>
         </div>
 
         {busy ? (
@@ -137,8 +157,35 @@ export function Checker() {
               <path d="M20 20l8 8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
             </svg>
             <p>{steps[step]}</p>
-            <small>This usually takes 10 to 30 seconds, sometimes up to a minute.</small>
+            <small>
+              {mode === "website"
+                ? "This takes a few seconds."
+                : "This usually takes 10 to 30 seconds, sometimes up to a minute."}
+            </small>
           </div>
+        ) : mode === "website" ? (
+          <>
+            <label className="field-label" htmlFor="site" style={{ marginTop: 0 }}>
+              Website address
+            </label>
+            <input
+              id="site"
+              className="site-input"
+              type="text"
+              inputMode="url"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+              placeholder="paypal-account-verify.com"
+              maxLength={2000}
+            />
+            <p className="hint">
+              We check whether it’s the real company, a look-alike spelling, or written with foreign letters that look
+              English (like a Russian “а” in “pаypal”). We never visit the site.
+            </p>
+          </>
         ) : mode === "screenshot" ? (
           <>
             {file ? (
@@ -212,9 +259,9 @@ export function Checker() {
         {!busy && (
           <div className="actions">
             <button type="submit" className="btn" disabled={!canSubmit}>
-              Check this message
+              {mode === "website" ? "Check this website" : "Check this message"}
             </button>
-            {(file || text || result) && (
+            {(file || text || result || site || siteResult) && (
               <button type="button" className="link-btn" onClick={reset}>
                 Start over
               </button>
@@ -236,6 +283,7 @@ export function Checker() {
 
       <div ref={resultRef} tabIndex={-1} style={{ outline: "none" }}>
         {result && <Result result={result} />}
+        {siteResult && <DomainResult result={siteResult} />}
       </div>
     </>
   );
