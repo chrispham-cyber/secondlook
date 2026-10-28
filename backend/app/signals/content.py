@@ -27,9 +27,16 @@ PROGRAM_EXTENSIONS = (
 ARCHIVE_EXTENSIONS = "zip rar 7z gz tgz tar cab ace arj".split()
 _EXT = "|".join(PROGRAM_EXTENSIONS)
 # "invoice.pdf.exe": a document extension followed by a program extension.
-# Name parts are length-bounded so a long run like "a-a-a-..." can't make matching quadratic.
-_DOUBLE_EXT = re.compile(rf"(?i)\b[\w-]{{1,100}}\.(?:pdf|docx?|xlsx?|jpe?g|png|txt|zip)\s*\.(?:{_EXT})\b")
-_PROGRAM_NAME = re.compile(rf"(?i)\b[\w-]{{2,100}}\.(?:{_EXT})\b")
+# Anchored on the extension with a fixed-width look-behind, so matching stays linear and a name of any
+# length is caught. The name shown to the person is taken from a short window before the match.
+_DOUBLE_EXT = re.compile(rf"(?i)(?<=[\w-])\.(?:pdf|docx?|xlsx?|jpe?g|png|txt|zip)\s*\.(?:{_EXT})\b")
+_PROGRAM_NAME = re.compile(rf"(?i)(?<=[\w-]{{2}})\.(?:{_EXT})\b")
+_NAME_TAIL = re.compile(r"[\w-]{1,40}$")
+
+
+def _file_name(plain: str, m: re.Match) -> str:
+    tail = _NAME_TAIL.search(plain, max(0, m.start() - 40), m.start())
+    return (tail.group(0) if tail else "") + m.group(0)
 
 
 @dataclass(frozen=True)
@@ -86,7 +93,8 @@ def scan_content(text: str) -> list[ContentFinding]:
                 "double_extension",
                 "high",
                 "A program disguised as a document",
-                f'"{m.group(0)}" looks like a document, but the real ending is a program that would run on your device.',
+                f'"{_file_name(plain, m)}" looks like a document, but the real ending is a program that would run on '
+                "your device.",
                 85,
             )
         )
@@ -98,7 +106,7 @@ def scan_content(text: str) -> list[ContentFinding]:
                     "program_file",
                     "medium",
                     "Mentions a program or app file",
-                    f'The message refers to "{m.group(0)}", a file that installs or runs software. Don\'t open files '
+                    f'The message refers to "{_file_name(plain, m)}", a file that installs or runs software. Don\'t open files '
                     "or install apps that arrive in a message.",
                 )
             )

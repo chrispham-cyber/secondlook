@@ -271,6 +271,12 @@ def test_pdf_with_a_missing_reference_is_still_read():
     assert not inspect(pdf(extra="/Metadata 99 0 R")).blocked  # nothing is there to hide code in
 
 
+def test_long_file_names_are_still_caught():
+    findings = scan_content("open " + "x" * 300 + ".pdf.exe now")
+    assert findings[0].name == "double_extension" and 'xxxx.pdf.exe"' in findings[0].detail
+    assert "program_file" in {f.name for f in scan_content("run " + "y" * 500 + ".scr")}
+
+
 def test_content_checks_stay_fast_on_hostile_input():
     import time
 
