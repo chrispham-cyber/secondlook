@@ -246,3 +246,35 @@ def test_hidden_characters_set_a_floor(tmp_path):
         body = c.post("/api/scan", data={"text": "Your invoice is attached: invoice\u202efdp.exe"}).json()
     assert body["risk_score"] >= 85
     assert any(f["source"] == "content_check" for f in body["red_flags"])
+
+
+# --- fail closed, and no slow regexes
+
+
+def test_docx_with_a_malformed_part_is_refused():
+    result = inspect(docx(files={"word/_rels/header1.xml.rels": b"<Relationships><unclosed"}))
+    assert result.blocked and "unreadable_parts" in {f.name for f in result.check.findings}
+
+
+def test_pdf_with_a_damaged_object_stream_is_refused():
+    import zlib
+
+    data = pdf_hidden_js()
+    packed = zlib.compress(b"7 0 << /S /JavaScript /JS (app.alert(1)) >>")
+    at = data.index(packed)
+    damaged = data[:at] + bytes(len(packed)) + data[at + len(packed) :]  # the reader can't see inside any more
+    result = inspect(damaged)
+    assert result.blocked and "unreadable_parts" in {f.name for f in result.check.findings}
+
+
+def test_pdf_with_a_missing_reference_is_still_read():
+    assert not inspect(pdf(extra="/Metadata 99 0 R")).blocked  # nothing is there to hide code in
+
+
+def test_content_checks_stay_fast_on_hostile_input():
+    import time
+
+    for text in ("a-" * 10_000, "a" * 20_000 + ".", ("x" * 99 + ".pdf ") * 200):
+        start = time.perf_counter()
+        scan_content(text)
+        assert time.perf_counter() - start < 0.5

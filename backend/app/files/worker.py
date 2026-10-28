@@ -23,7 +23,7 @@ import zipfile
 import defusedxml.ElementTree as SafeET
 from defusedxml import DefusedXmlException
 from pypdf import PdfReader
-from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject
+from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject, NullObject
 
 PROGRAM_EXTENSIONS = set(
     "exe scr msi msix com bat cmd pif cpl hta jar js jse vbs vbe wsf ps1 lnk reg apk xapk dmg pkg app "
@@ -96,18 +96,30 @@ def read_pdf(data: bytes, max_pages: int, max_chars: int) -> dict:
     def add(key: str, *args) -> None:
         found.setdefault(key, finding(key, *args))
 
+    # Objects the file says it has. pypdf turns a damaged one into null instead of failing, so a null
+    # for a listed object means a part we couldn't check.
+    listed = set(getattr(reader, "xref_objStm", {}) or {})
+    for table in (getattr(reader, "xref", {}) or {}).values():
+        listed.update(table)
+
     seen: set[int] = set()
     stack = [reader.trailer]
     walked = 0
+    broken = 0
     while stack and walked < MAX_OBJECTS:
         obj = stack.pop()
         if isinstance(obj, IndirectObject):
             if obj.idnum in seen:
                 continue
             seen.add(obj.idnum)
+            idnum = obj.idnum
             try:
                 obj = obj.get_object()
             except Exception:
+                broken += 1  # an object we can't check might be the one hiding the script
+                continue
+            if (obj is None or isinstance(obj, NullObject)) and idnum in listed:
+                broken += 1
                 continue
         walked += 1
         if isinstance(obj, ArrayObject):
@@ -153,6 +165,24 @@ def read_pdf(data: bytes, max_pages: int, max_chars: int) -> dict:
             elif "/EF" in keys:
                 add("pdf_embedded_file", "low", "The PDF carries an attachment", f'Attached file: "{name[:80] or "unnamed"}".')
         stack.extend(obj.values())
+
+    # Fail closed: anything we couldn't walk is treated as dangerous, not as clean.
+    if stack:
+        add(
+            "too_complex",
+            "high",
+            "The file is too complex to check",
+            "It has far more internal parts than a normal document, which is a way to hide code from scanners.",
+            70,
+        )
+    if broken:
+        add(
+            "unreadable_parts",
+            "high",
+            "Parts of the file couldn't be checked",
+            f"{broken} internal part(s) are damaged or hidden, so we can't confirm the file has no code in it.",
+            70,
+        )
 
     out["findings"] = list(found.values())
     out["urls"] = urls[:50]
@@ -252,7 +282,14 @@ def read_docx(data: bytes, max_chars: int) -> dict:
                 90,
             )
         except Exception:
-            return None
+            # Fail closed: a part we can't parse might be the one carrying the attack.
+            add(
+                "unreadable_parts",
+                "high",
+                "Parts of the file couldn't be checked",
+                f"The part {name[:80]} is damaged or malformed, so we can't confirm the file is safe.",
+                70,
+            )
         return None
 
     # Macros, ActiveX, and embedded objects.

@@ -27,8 +27,9 @@ PROGRAM_EXTENSIONS = (
 ARCHIVE_EXTENSIONS = "zip rar 7z gz tgz tar cab ace arj".split()
 _EXT = "|".join(PROGRAM_EXTENSIONS)
 # "invoice.pdf.exe": a document extension followed by a program extension.
-_DOUBLE_EXT = re.compile(rf"(?i)\b[\w-]+\.(?:pdf|docx?|xlsx?|jpe?g|png|txt|zip)\s*\.(?:{_EXT})\b")
-_PROGRAM_NAME = re.compile(rf"(?i)\b[\w-]{{2,}}\.(?:{_EXT})\b")
+# Name parts are length-bounded so a long run like "a-a-a-..." can't make matching quadratic.
+_DOUBLE_EXT = re.compile(rf"(?i)\b[\w-]{{1,100}}\.(?:pdf|docx?|xlsx?|jpe?g|png|txt|zip)\s*\.(?:{_EXT})\b")
+_PROGRAM_NAME = re.compile(rf"(?i)\b[\w-]{{2,100}}\.(?:{_EXT})\b")
 
 
 @dataclass(frozen=True)

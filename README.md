@@ -90,7 +90,7 @@ Without an AI the app still runs in rules-only mode for pasted text. `/api/healt
 ## Tests
 
 ```bash
-cd backend && uv run pytest -q   # 97 tests, no network, no API spend (Claude and Ollama are faked)
+cd backend && uv run pytest -q   # 101 tests, no network, no API spend (Claude and Ollama are faked)
 cd frontend && npm run lint && npx tsc --noEmit
 ```
 
