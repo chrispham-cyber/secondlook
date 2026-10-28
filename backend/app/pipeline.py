@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -93,10 +94,11 @@ class LinkAnalyzer:
 
     async def analyze(self, url: str) -> LinkReport:
         report = static_checks(url)
-        ascii_host = report.host_ascii or report.host
-        report.on_blocklist = self.blocklist.match(url) or (
-            ascii_host != report.host and self.blocklist.match(url.replace(report.host, ascii_host, 1))
-        )
+        # Check every form of the host (as written, folded, decoded, encoded) against the parsed path.
+        parts = urlsplit(url)
+        path = parts.path
+        hosts = {parts.hostname or "", report.host, report.host_unicode or "", report.host_ascii or ""} - {""}
+        report.on_blocklist = self.blocklist.match(url) or any(self.blocklist.match_host(h, path) for h in hosts)
         if report.on_blocklist:
             report.checks.insert(
                 0,

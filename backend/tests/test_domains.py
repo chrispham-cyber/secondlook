@@ -94,3 +94,24 @@ def test_domain_check_rejects_non_addresses(tmp_path):
     with make_client(tmp_path, FakeAnalyzer()) as c:
         assert check(c, "hello there").status_code == 400
         assert check(c, "x" * 3000).status_code == 422
+
+
+def test_blocklist_matches_every_form_of_the_address():
+    import asyncio
+
+    import httpx
+
+    from app.config import Settings
+    from app.pipeline import LinkAnalyzer
+    from app.signals.blocklist import Blocklist
+
+    bl = Blocklist()
+    bl.urls.add("xn--80ak6aa92e.com/verify")
+    links = LinkAnalyzer(Settings(network_checks=False), httpx.AsyncClient(), bl)
+    for url in (
+        "https://аррӏе.com/verify",
+        "https://xn--80ak6aa92e.com/verify/",
+        "https://аррӏе.com@аррӏе.com/verify",  # the host also appears in the user@ part
+        "https://АРРӀЕ.com/verify",  # uppercase Cyrillic
+    ):
+        assert asyncio.run(links.analyze(url)).on_blocklist, url

@@ -51,10 +51,13 @@ class Blocklist:
 
     def match(self, url: str) -> bool:
         key = _key(url)
-        if key in self.urls:
-            return True
-        host = key.split("/", 1)[0]
-        return host in self.hosts
+        host, _, rest = key.partition("/")
+        return self.match_host(host, "/" + rest if rest else "")
+
+    def match_host(self, host: str, path: str = "") -> bool:
+        """Match a parsed host and path, so callers can check each form of an address without string surgery."""
+        host = host.lower()
+        return f"{host}{path.rstrip('/')}" in self.urls or host in self.hosts
 
     async def refresh(self, client: httpx.AsyncClient) -> None:
         fresh = Blocklist()
