@@ -154,7 +154,7 @@ uv run python -m evals.summarize --tests                 # newest run per set an
 | Documents, foreign-letter links, codes (120) | AI alone | 97% | 100% | 3% | 0.98 |
 | Documents, foreign-letter links, codes (120) | **Shipped** | **100%** | **100%** | **0%** | **1.00** |
 
-Round 4 of the text model traded a little on the older sets for the new inputs. On the 120-message set, the round-3 model raised false alarms on 37% of the real messages (one-time codes, bank alerts, documents); the round-4 model raises them on 2%. On the blind test the shipped system now has one false alarm, a real Netflix household code that the AI scored 85 and the text model no longer marks as clearly safe (30, up from 8), and on the public SMS the no-AI path catches 96% instead of 99%. Both test sets were left as they are rather than tuned against.
+Round 4 of the text model traded a little on the older sets for the new inputs. On the 120-message set, the round-3 model raised false alarms on 37% of the real messages (one-time codes, bank alerts, documents); the round-4 model raises them on 2%. On the blind test the shipped system now has one false alarm, a real Netflix household code that the AI scored 85 and the text model no longer marks as clearly safe (24, up from 8), and on the public SMS the no-AI path catches 96% instead of 99%. Both test sets were left as they are rather than tuned against.
 
 On screenshots the AI alone raises more false alarms than on the same messages as text (15% vs 6%), and that carries into the shipped score.
 
