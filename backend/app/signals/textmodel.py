@@ -47,7 +47,9 @@ def link_features(text: str) -> list[str]:
     return sorted(set(out))
 
 
-_MIXED_WORD = re.compile(r"\S*[a-z]\S*")
+_TOKEN = re.compile(r"\S+")
+# NFKC can turn one character into up to 18, so the text is capped again after normalizing.
+MAX_FEATURE_CHARS = 25_000
 
 
 def _unmask(t: str) -> str:
@@ -57,15 +59,19 @@ def _unmask(t: str) -> str:
     from app.signals.idn import INVISIBLE, STRONG
 
     def fix(m: re.Match) -> str:
-        word = "".join(ch for ch in m.group(0) if ch not in INVISIBLE)
+        word = m.group(0)
+        if not any("a" <= ch <= "z" for ch in word):
+            return word
+        word = "".join(ch for ch in word if ch not in INVISIBLE)
         return "".join(STRONG.get(ch, ch) for ch in word) if any(ch in STRONG for ch in word) else word
 
-    return _MIXED_WORD.sub(fix, t)
+    return _TOKEN.sub(fix, t)
 
 
 def features(text: str) -> list[str]:
     """Feature strings for one message. Training and inference both use exactly this function."""
-    t = _unmask(" ".join(unicodedata.normalize("NFKC", text).lower().split()))
+    text = unicodedata.normalize("NFKC", text[:MAX_FEATURE_CHARS])[:MAX_FEATURE_CHARS]
+    t = _unmask(" ".join(text.lower().split()))
     out: list[str] = []
     links = link_features(text)
     if _URL.search(t) or links:

@@ -121,3 +121,15 @@ def test_official_government_subdomains():
     assert static_checks("https://www.dmv.ca.gov/renew").official_brand
     assert static_checks("https://dmv.ca.gov").checks == []
     assert not static_checks("https://dmv-renew.ca.gov.example.com").official_brand
+
+
+def test_text_model_features_stay_fast_on_hostile_input():
+    import time
+
+    from app.signals.textmodel import _unmask, features
+
+    assert _unmask("pаypal.com и привет") == "paypal.com и привет"
+    for text in ("а" * 20_000, "\ufdfa" * 20_000, ("а" * 99 + "a ") * 200):
+        start = time.perf_counter()
+        features(text)
+        assert time.perf_counter() - start < 1.0
