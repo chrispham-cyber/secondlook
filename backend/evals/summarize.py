@@ -26,6 +26,7 @@ NAME = re.compile(r"^(?P<stamp>\d{8}-\d{6})__(?P<dataset>[^_]+(?:_[^_]+)*?)__(?P
 DATASETS = {
     "test": "Test set (written blind to the detector, never looked at while tuning)",
     "public": "Real messages from a public dataset (never looked at while tuning)",
+    "test_new": "Documents, foreign-letter links, and code theft (written blind, never looked at while tuning)",
     "dev_blind": "Dev: blind-written set (its errors guided the last prompt fix)",
     "dev_public": "Dev: real public messages (its errors guided the last prompt fix)",
     "dev": "Dev: original set (used while building the rules; optimistic)",

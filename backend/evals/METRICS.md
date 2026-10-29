@@ -28,6 +28,18 @@ A message counts as flagged at score 60 or above (the 'likely scam' line). Range
 | AI alone: ollama/qwen3.5-35b | text | 200/200 | 89% | 98% (93–99%) | 12% (7–20%) | 0.93 | 0/0 | 7.0s | $0.000 |
 | Shipped: AI + rules + text model: ollama/qwen3.5-35b | text | 200/200 | 99% | 98% (93–99%) | 1% (0–5%) | 0.98 | 0/0 | 7.0s | $0.000 |
 
+## Documents, foreign-letter links, and code theft (written blind, never looked at while tuning)
+
+`evals/data/test_new.jsonl`: 120 messages (60 scams across 24 categories, 60 legitimate).
+
+| System | Input | Scored | Precision | Scams caught (95% CI) | False alarms (95% CI) | F1 | Injection caught | Median time | Cost / scan |
+|---|---|---|---|---|---|---|---|---|---|
+| Rules only (no AI) | text | 120/120 | 100% | 45% (33–58%) | 0% (0–6%) | 0.62 | 0/0 | 0.13ms | $0 |
+| Trained text model only | text | 120/120 | 98% | 100% (94–100%) | 2% (0–9%) | 0.99 | 0/0 | <1ms | $0 |
+| Rules + text model (no AI) | text | 120/120 | 98% | 100% (94–100%) | 2% (0–9%) | 0.99 | 0/0 | <1ms | $0 |
+| AI alone: ollama/qwen3.5-35b | text | 120/120 | 97% | 100% (94–100%) | 3% (1–11%) | 0.98 | 0/0 | 4.8s | $0.000 |
+| Shipped: AI + rules + text model: ollama/qwen3.5-35b | text | 120/120 | 100% | 100% (94–100%) | 0% (0–6%) | 1.00 | 0/0 | 4.8s | $0.000 |
+
 ## Dev: blind-written set (its errors guided the last prompt fix)
 
 `evals/data/dev_blind.jsonl`: 160 messages (80 scams across 16 categories, 80 legitimate).
@@ -59,18 +71,6 @@ A message counts as flagged at score 60 or above (the 'likely scam' line). Range
 | Rules + text model (no AI) | text | 67/67 | 100% | 100% (91–100%) | 0% (0–11%) | 1.00 | 3/3 | <1ms | $0 |
 | AI alone: ollama/qwen3.5-35b | text | 67/67 | 100% | 100% (91–100%) | 0% (0–11%) | 1.00 | 3/3 | 5.4s | $0.000 |
 | Shipped: AI + rules + text model: ollama/qwen3.5-35b | text | 67/67 | 100% | 100% (91–100%) | 0% (0–11%) | 1.00 | 3/3 | 5.4s | $0.000 |
-
-## test_new
-
-`evals/data/test_new.jsonl`: 120 messages (60 scams across 24 categories, 60 legitimate).
-
-| System | Input | Scored | Precision | Scams caught (95% CI) | False alarms (95% CI) | F1 | Injection caught | Median time | Cost / scan |
-|---|---|---|---|---|---|---|---|---|---|
-| Rules only (no AI) | text | 120/120 | 100% | 45% (33–58%) | 0% (0–6%) | 0.62 | 0/0 | 0.13ms | $0 |
-| Trained text model only | text | 120/120 | 98% | 100% (94–100%) | 2% (0–9%) | 0.99 | 0/0 | <1ms | $0 |
-| Rules + text model (no AI) | text | 120/120 | 98% | 100% (94–100%) | 2% (0–9%) | 0.99 | 0/0 | <1ms | $0 |
-| AI alone: ollama/qwen3.5-35b | text | 120/120 | 97% | 100% (94–100%) | 3% (1–11%) | 0.98 | 0/0 | 4.8s | $0.000 |
-| Shipped: AI + rules + text model: ollama/qwen3.5-35b | text | 120/120 | 100% | 100% (94–100%) | 0% (0–6%) | 1.00 | 0/0 | 4.8s | $0.000 |
 
 ## Numbers you can quote
 
