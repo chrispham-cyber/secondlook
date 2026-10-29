@@ -11,6 +11,7 @@ import gzip
 import json
 import math
 import re
+import unicodedata
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
@@ -46,11 +47,28 @@ def link_features(text: str) -> list[str]:
     return sorted(set(out))
 
 
+_MIXED_WORD = re.compile(r"\S*[a-z]\S*")
+
+
+def _unmask(t: str) -> str:
+    """Read look-alike foreign letters inside Latin words as the letters they imitate, so a
+    disguised "pаypal" (Cyrillic "а") reads as "paypal". Words written fully in another alphabet
+    are left alone, so real Russian or Greek text keeps its own letters."""
+    from app.signals.idn import INVISIBLE, STRONG
+
+    def fix(m: re.Match) -> str:
+        word = "".join(ch for ch in m.group(0) if ch not in INVISIBLE)
+        return "".join(STRONG.get(ch, ch) for ch in word) if any(ch in STRONG for ch in word) else word
+
+    return _MIXED_WORD.sub(fix, t)
+
+
 def features(text: str) -> list[str]:
     """Feature strings for one message. Training and inference both use exactly this function."""
-    t = " ".join(text.lower().split())
+    t = _unmask(" ".join(unicodedata.normalize("NFKC", text).lower().split()))
     out: list[str] = []
-    if _URL.search(t):
+    links = link_features(text)
+    if _URL.search(t) or links:
         out.append("f:url")
     if _PHONE.search(t):
         out.append("f:phone")
@@ -60,7 +78,7 @@ def features(text: str) -> list[str]:
         out.append("f:handle")
     if _CODE.search(t):
         out.append("f:code")
-    out += link_features(text)
+    out += links
     # Digits become 0 so "call 0906-123-4567" and "call 0871-999-0000" look alike.
     t = re.sub(r"\d", "0", t)
     words = _WORD.findall(t)

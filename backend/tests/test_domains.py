@@ -115,3 +115,9 @@ def test_blocklist_matches_every_form_of_the_address():
         "https://АРРӀЕ.com/verify",  # uppercase Cyrillic
     ):
         assert asyncio.run(links.analyze(url)).on_blocklist, url
+
+
+def test_official_government_subdomains():
+    assert static_checks("https://www.dmv.ca.gov/renew").official_brand
+    assert static_checks("https://dmv.ca.gov").checks == []
+    assert not static_checks("https://dmv-renew.ca.gov.example.com").official_brand

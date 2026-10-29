@@ -8,7 +8,7 @@ Training data:
   - The US-style dev sets (evals/data/dev.jsonl, dev_blind.jsonl) and training-only sets
     (evals/data/train_us_*.jsonl, written blind like the test set), weighted higher because they are
     the closest match to the app's real users but there are few of them.
-Never trained on: evals/data/test.jsonl and evals/data/public.jsonl. Messages from train_us_*.jsonl
+Never trained on: evals/data/test.jsonl, test_new.jsonl, and public.jsonl. Messages from train_us_*.jsonl
 that are 70%+ similar to a blind-test message are dropped, and public messages 80%+ similar to a
 public-test message (the same scam campaign, reworded). Any other training message that is a
 near-duplicate of a test message (same letters once digits, punctuation and case are ignored, or the
@@ -60,10 +60,12 @@ def read_jsonl(name: str) -> list[dict]:
 
 def load() -> tuple[list[str], np.ndarray, np.ndarray, list[str]]:
     test_rows = read_jsonl("test.jsonl") + read_jsonl("public.jsonl")
+    if (DATA / "test_new.jsonl").exists():
+        test_rows += read_jsonl("test_new.jsonl")
     banned = {letters(r["text"]) for r in test_rows}
     banned_prefix = {letters(r["text"])[:40] for r in test_rows}
 
-    blind_test = [r["text"] for r in test_rows if r["id"].startswith("t")]
+    blind_test = [r["text"] for r in test_rows if r["id"].startswith(("t", "n"))]
 
     public_test = [r["text"] for r in test_rows if not r["id"].startswith("t")]
 

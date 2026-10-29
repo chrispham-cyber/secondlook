@@ -100,11 +100,12 @@ CI (`.github/workflows/ci.yml`) runs these, plus the free eval baseline, a produ
 
 ## Evals
 
-787 labeled messages live in `backend/evals/data/` (details and attribution in its README). They are split by whether their results were ever used to change the detector:
+907 labeled messages live in `backend/evals/data/` (details and attribution in its README). They are split by whether their results were ever used to change the detector:
 
 | Set | Messages | What it is | Used for tuning? |
 |---|---|---|---|
 | `test.jsonl` | 160 (80 scam / 80 legit) | Synthetic, generated separately from the detector, without access to its code or the other sets. 16 scam types, 8 prompt-injection attacks, and hard negatives such as real bank fraud alerts, 2FA codes, and casual family texts. | No |
+| `test_new.jsonl` | 120 (60 / 60) | Written blind by a separate author for the inputs added later: PDF/Word document text, links spelled with Cyrillic or Greek letters next to genuine foreign-language messages, code theft and remote access next to real one-time codes, and bank or bill notices | No |
 | `public.jsonl` | 200 (100 / 100) | Real SMS sampled from a public dataset (Mishra & Soni 2022, CC BY 4.0). Older, mostly UK and India. | No |
 | `dev_blind.jsonl`, `dev_public.jsonl`, `dev.jsonl` | 427 | Same kinds of data, used to find and fix errors | Yes |
 
@@ -143,12 +144,17 @@ uv run python -m evals.summarize --tests                 # newest run per set an
 | Blind test (160) | Rules only | 100% | 21% | 0% | 0.35 |
 | Blind test (160) | Rules + text model, no AI | 100% | 93% | 0% | 0.96 |
 | Blind test (160) | AI alone | 94% | 95% | 6% | 0.94 |
-| Blind test (160) | **Shipped: AI + rules + text model** | **100%** | **95%** | **0%** | **0.97** |
+| Blind test (160) | **Shipped: AI + rules + text model** | **99%** | **95%** | **1%** | **0.97** |
 | Blind test, as screenshots | Shipped | 94% | 96% | 6% | 0.95 |
 | Real public SMS (200) | Rules only | 0% | 0% | 0% | 0.00 |
-| Real public SMS (200) | Rules + text model, no AI | 100% | 99% | 0% | 0.99 |
+| Real public SMS (200) | Rules + text model, no AI | 100% | 96% | 0% | 0.98 |
 | Real public SMS (200) | AI alone | 89% | 98% | 12% | 0.93 |
 | Real public SMS (200) | **Shipped** | **99%** | **98%** | **1%** | **0.98** |
+| Documents, foreign-letter links, codes (120) | Rules + text model, no AI | 97% | 100% | 3% | 0.98 |
+| Documents, foreign-letter links, codes (120) | AI alone | 97% | 100% | 3% | 0.98 |
+| Documents, foreign-letter links, codes (120) | **Shipped** | **100%** | **100%** | **0%** | **1.00** |
+
+Round 4 of the text model traded a little on the older sets for the new inputs. On the 120-message set, the round-3 model raised false alarms on 37% of the real messages (one-time codes, bank alerts, documents); the round-4 model raises them on 3%. On the blind test the shipped system now has one false alarm, a real Netflix household code that the AI scored 85 and the text model no longer marks as clearly safe (30, up from 8), and on the public SMS the no-AI path catches 96% instead of 99%. Both test sets were left as they are rather than tuned against.
 
 On screenshots the AI alone raises more false alarms than on the same messages as text (15% vs 6%), and that carries into the shipped score.
 
@@ -179,10 +185,11 @@ How the model got better, measured by cross-validated average precision on US-st
 | Public SMS + 181 US-style examples | 0.948 | 10% |
 | + 400 US-style examples (learning curve said data was the bottleneck) | 0.971 | 5% |
 | + link, chat-handle, and code features kept outside the TF-IDF normalization, + 300 examples aimed at the remaining dev errors | 0.992 | 2% |
+| + 299 examples for documents, foreign-letter links, real money notices, and code theft; look-alike letters inside Latin words read as the letters they imitate | 0.994 | 0% |
 
 The learning curve is now flat (0.989 with 75% of the US-style data, 0.990 with all of it), so more of the same data won't help; real user feedback would.
 
-The script never trains on `test.jsonl` or `public.jsonl`, and drops any training message that is a near-copy of a test message (447 of them). Public scams come in campaigns, the same template reworded, so it also drops public messages 80%+ similar to a public-test message; before that filter, 28 of the 100 public-test scams had a close variant in training. It writes out-of-fold predictions for every dev message, so `combine_study` can compare mixing rules on messages the model never saw. The exported JSON model is checked against scikit-learn's own predictions (max difference 4e-7).
+The script never trains on `test.jsonl`, `test_new.jsonl`, or `public.jsonl`, and drops any training message that is a near-copy of a test message (461 of them). Public scams come in campaigns, the same template reworded, so it also drops public messages 80%+ similar to a public-test message; before that filter, 28 of the 100 public-test scams had a close variant in training. It writes out-of-fold predictions for every dev message, so `combine_study` can compare mixing rules on messages the model never saw. The exported JSON model is checked against scikit-learn's own predictions (max difference 3e-7).
 
 ## Deploy
 

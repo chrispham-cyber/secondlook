@@ -131,7 +131,13 @@ def _deconfuse(label: str) -> str:
     return label.translate(_CONFUSABLES).replace("rn", "m").replace("vv", "w").replace("-", "")
 
 
-def official_brand_for(reg_domain: str) -> str | None:
+def official_brand_for(reg_domain: str, host: str = "") -> str | None:
+    """The brand whose official site this is. Shared parents such as ca.gov only count through
+    the listed subdomain (dmv.ca.gov), so other ca.gov sites are not vouched for."""
+    labels = host.split(".") if host.endswith(reg_domain) else []
+    for i in range(len(labels) - reg_domain.count(".") - 1):
+        if (brand := OFFICIAL_DOMAINS.get(".".join(labels[i:]))) is not None:
+            return brand
     return OFFICIAL_DOMAINS.get(reg_domain)
 
 
@@ -181,7 +187,7 @@ def static_checks(url: str) -> LinkReport:
 
     forms = analyze_host(host)
     # Invisible characters make it unclear which site really opens, so never vouch for such a link.
-    official = None if forms.hidden_characters else official_brand_for(reg)
+    official = None if forms.hidden_characters else official_brand_for(reg, forms.unicode)
     report.official_brand = official
     report.host_ascii, report.host_unicode, report.scripts = forms.ascii, forms.unicode, forms.scripts
     shown = f"{forms.unicode} (real address: {forms.ascii})" if forms.international else reg
