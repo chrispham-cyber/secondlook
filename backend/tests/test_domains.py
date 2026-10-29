@@ -133,3 +133,12 @@ def test_text_model_features_stay_fast_on_hostile_input():
         start = time.perf_counter()
         features(text)
         assert time.perf_counter() - start < 1.0
+
+
+def test_padding_cannot_push_a_scam_out_of_the_text_model():
+    from app.signals.textmodel import features
+
+    scam = "Your Apple ID is locked. Verify at аррӏе.com/unlock"
+    for pad in ("\ufdfa" * 1_400, "x" * 19_000 + " ", "a" * 19_000 + " "):
+        words = {f for f in features(pad + scam) if f.startswith("w:")}
+        assert {"w:locked", "w:verify", "w:apple.com"} <= words

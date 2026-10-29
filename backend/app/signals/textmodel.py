@@ -48,8 +48,21 @@ def link_features(text: str) -> list[str]:
 
 
 _TOKEN = re.compile(r"\S+")
-# NFKC can turn one character into up to 18, so the text is capped again after normalizing.
-MAX_FEATURE_CHARS = 25_000
+_RUN = re.compile(r"(.)\1{8,}", re.DOTALL)
+# Well above the longest text the app accepts (20,000 characters) even after normalizing doubles it,
+# so padding can't push the real message past the cap.
+MAX_FEATURE_CHARS = 50_000
+
+
+def _normalize(text: str) -> str:
+    """NFKC (fullwidth and styled letters to plain ones) without letting a few characters blow the
+    text up: characters that expand to 3+ characters (one Arabic ligature becomes 18) count as a
+    space, and runs of one repeated character are shortened to 8."""
+    text = "".join(
+        " " if not ch.isascii() and len(unicodedata.normalize("NFKC", ch)) > 2 else ch
+        for ch in _RUN.sub(lambda m: m.group(1) * 8, text)
+    )
+    return _RUN.sub(lambda m: m.group(1) * 8, unicodedata.normalize("NFKC", text))[:MAX_FEATURE_CHARS]
 
 
 def _unmask(t: str) -> str:
@@ -70,8 +83,7 @@ def _unmask(t: str) -> str:
 
 def features(text: str) -> list[str]:
     """Feature strings for one message. Training and inference both use exactly this function."""
-    text = unicodedata.normalize("NFKC", text[:MAX_FEATURE_CHARS])[:MAX_FEATURE_CHARS]
-    t = _unmask(" ".join(text.lower().split()))
+    t = _unmask(" ".join(_normalize(text[: MAX_FEATURE_CHARS * 2]).lower().split()))
     out: list[str] = []
     links = link_features(text)
     if _URL.search(t) or links:

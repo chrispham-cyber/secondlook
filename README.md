@@ -92,7 +92,7 @@ Without an AI the app still runs in rules-only mode for pasted text. `/api/healt
 ## Tests
 
 ```bash
-cd backend && uv run pytest -q   # 123 tests, no network, no API spend (Claude and Ollama are faked)
+cd backend && uv run pytest -q   # 124 tests, no network, no API spend (Claude and Ollama are faked)
 cd frontend && npm run lint && npx tsc --noEmit
 ```
 
@@ -142,7 +142,7 @@ uv run python -m evals.summarize --tests                 # newest run per set an
 | Set | System | Precision | Scams caught | False alarms | F1 |
 |---|---|---|---|---|---|
 | Blind test (160) | Rules only | 100% | 21% | 0% | 0.35 |
-| Blind test (160) | Rules + text model, no AI | 100% | 93% | 0% | 0.96 |
+| Blind test (160) | Rules + text model, no AI | 100% | 94% | 0% | 0.97 |
 | Blind test (160) | AI alone | 94% | 95% | 6% | 0.94 |
 | Blind test (160) | **Shipped: AI + rules + text model** | **99%** | **95%** | **1%** | **0.97** |
 | Blind test, as screenshots | Shipped | 94% | 96% | 6% | 0.95 |
@@ -150,11 +150,11 @@ uv run python -m evals.summarize --tests                 # newest run per set an
 | Real public SMS (200) | Rules + text model, no AI | 100% | 96% | 0% | 0.98 |
 | Real public SMS (200) | AI alone | 89% | 98% | 12% | 0.93 |
 | Real public SMS (200) | **Shipped** | **99%** | **98%** | **1%** | **0.98** |
-| Documents, foreign-letter links, codes (120) | Rules + text model, no AI | 97% | 100% | 3% | 0.98 |
+| Documents, foreign-letter links, codes (120) | Rules + text model, no AI | 98% | 100% | 2% | 0.99 |
 | Documents, foreign-letter links, codes (120) | AI alone | 97% | 100% | 3% | 0.98 |
 | Documents, foreign-letter links, codes (120) | **Shipped** | **100%** | **100%** | **0%** | **1.00** |
 
-Round 4 of the text model traded a little on the older sets for the new inputs. On the 120-message set, the round-3 model raised false alarms on 37% of the real messages (one-time codes, bank alerts, documents); the round-4 model raises them on 3%. On the blind test the shipped system now has one false alarm, a real Netflix household code that the AI scored 85 and the text model no longer marks as clearly safe (30, up from 8), and on the public SMS the no-AI path catches 96% instead of 99%. Both test sets were left as they are rather than tuned against.
+Round 4 of the text model traded a little on the older sets for the new inputs. On the 120-message set, the round-3 model raised false alarms on 37% of the real messages (one-time codes, bank alerts, documents); the round-4 model raises them on 2%. On the blind test the shipped system now has one false alarm, a real Netflix household code that the AI scored 85 and the text model no longer marks as clearly safe (30, up from 8), and on the public SMS the no-AI path catches 96% instead of 99%. Both test sets were left as they are rather than tuned against.
 
 On screenshots the AI alone raises more false alarms than on the same messages as text (15% vs 6%), and that carries into the shipped score.
 
