@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     # A header set by the hosting platform's edge with the visitor's IP (Fly.io: fly-client-ip).
     # Only set it when every request reaches the backend through that edge.
     client_ip_header: str | None = None
+    # The header is only believed when the request itself comes from one of these networks (our own
+    # proxies on a private network), and only when it holds a valid IP address.
+    client_ip_trusted_peers: str = "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
 
     cors_origins: str = "http://localhost:3000"
 

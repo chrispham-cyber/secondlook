@@ -92,7 +92,7 @@ Without an AI the app still runs in rules-only mode for pasted text. `/api/healt
 ## Tests
 
 ```bash
-cd backend && uv run pytest -q   # 127 tests, no network, no API spend (Claude and Ollama are faked)
+cd backend && uv run pytest -q   # 128 tests, no network, no API spend (Claude and Ollama are faked)
 cd frontend && npm run lint && npx tsc --noEmit
 ```
 
@@ -204,7 +204,7 @@ visitor ──https──> secondlook-web (Fly, public)
 
 - The web app is the only public part. The API has no public IP, and Ollama is reachable only inside your Tailscale network, never from the internet.
 - One scan uses the AI at a time (`OLLAMA_MAX_CONCURRENT=1`). A text scan that waits more than 20 seconds, or arrives while your computer is off or asleep, is scored by the rules and the text model instead. Screenshots need the AI, so they get a "try again or paste the text" message.
-- Rate limits use the visitor IP that Fly's edge puts in `fly-client-ip`.
+- Rate limits use the visitor IP that Fly's edge puts in `fly-client-ip`. The backend believes that header only when the request comes from a private-network address (its own proxies) and the value is a valid IP.
 
 On your computer:
 

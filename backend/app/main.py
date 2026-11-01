@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -68,9 +69,19 @@ def create_app(
         allow_headers=["*"],
     )
 
+    trusted_peers = [ipaddress.ip_network(n.strip()) for n in settings.client_ip_trusted_peers.split(",") if n.strip()]
+
+    def _ip(value: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+        try:
+            return ipaddress.ip_address((value or "").strip())
+        except ValueError:
+            return None
+
     def client_ip(request: Request) -> str:
-        if settings.client_ip_header and (ip := request.headers.get(settings.client_ip_header)):
-            return ip.strip()
+        peer = _ip(request.client.host if request.client else None)
+        if settings.client_ip_header and peer is not None and any(peer in n for n in trusted_peers):
+            if (visitor := _ip(request.headers.get(settings.client_ip_header))) is not None:
+                return str(visitor)
         if settings.trust_proxy_headers:
             # The right-most entry is the one our own proxy added; anything to its left is client-supplied.
             fwd = request.headers.get("x-forwarded-for")

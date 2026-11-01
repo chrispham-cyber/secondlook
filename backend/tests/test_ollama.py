@@ -109,12 +109,34 @@ async def test_a_full_queue_falls_back_instead_of_waiting():
     await asyncio.sleep(0)
 
 
-def test_edge_client_ip_header_is_used_for_rate_limits(tmp_path):
-    from tests.fakes import FakeAnalyzer
-    from tests.test_api import make_client
+def _limited_client(tmp_path, peer: str):
+    from fastapi.testclient import TestClient
 
-    with make_client(tmp_path, FakeAnalyzer(), client_ip_header="fly-client-ip", rate_limit_per_minute=2) as c:
-        for _ in range(2):
-            assert c.post("/api/domain", json={"domain": "a.com"}, headers={"fly-client-ip": "1.1.1.1"}).status_code == 200
-        assert c.post("/api/domain", json={"domain": "a.com"}, headers={"fly-client-ip": "1.1.1.1"}).status_code == 429
-        assert c.post("/api/domain", json={"domain": "a.com"}, headers={"fly-client-ip": "2.2.2.2"}).status_code == 200
+    from app.config import Settings
+    from app.main import create_app
+    from tests.fakes import FakeAnalyzer
+
+    s = Settings(
+        database_url=f"sqlite:///{tmp_path}/t.db",
+        network_checks=False,
+        client_ip_header="fly-client-ip",
+        rate_limit_per_minute=2,
+    )
+    return TestClient(create_app(s, analyzer=FakeAnalyzer()), client=(peer, 50000))
+
+
+def _hit(c, ip: str) -> int:
+    return c.post("/api/domain", json={"domain": "a.com"}, headers={"fly-client-ip": ip}).status_code
+
+
+def test_edge_client_ip_header_is_used_for_rate_limits(tmp_path):
+    with _limited_client(tmp_path, "fdaa:0:1::3") as c:  # a proxy on the private network
+        assert [_hit(c, "1.1.1.1") for _ in range(3)] == [200, 200, 429]
+        assert _hit(c, "2.2.2.2") == 200
+
+
+def test_client_ip_header_is_ignored_from_public_peers_and_when_invalid(tmp_path):
+    with _limited_client(tmp_path, "203.0.113.9") as c:  # straight from the internet
+        assert [_hit(c, ip) for ip in ("1.1.1.1", "2.2.2.2", "3.3.3.3")] == [200, 200, 429]
+    with _limited_client(tmp_path, "10.0.0.5") as c:
+        assert [_hit(c, junk) for junk in ("x", "1.1.1.1, 2.2.2.2", "")] == [200, 200, 429]
