@@ -1,0 +1,18 @@
+# Public web app for Second Look. /api/* is proxied to the private API over Fly's private network.
+app = "secondlook-web"
+primary_region = "iad"
+
+[build]
+  [build.args]
+    BACKEND_URL = "http://secondlook-api.flycast"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     ollama_think: bool | None = None  # None = model default; false speeds up thinking models like qwen3.5
     ollama_num_ctx: int = 8192
     ollama_timeout_seconds: float = 180.0
+    # A machine that is off or asleep should fail fast, so scans fall back to the no-AI checks.
+    ollama_connect_timeout_seconds: float = 5.0
+    # A local model handles one scan at a time. 0 = no limit. When the queue is full for longer
+    # than ollama_queue_seconds, text scans are scored without the AI instead of waiting.
+    ollama_max_concurrent: int = 0
+    ollama_queue_seconds: float = 20.0
 
     # Claude. Read from the environment or backend/.env; never commit it.
     anthropic_api_key: SecretStr | None = None
@@ -48,6 +54,9 @@ class Settings(BaseSettings):
     clamav_host: str | None = None
     clamav_port: int = 3310
     trust_proxy_headers: bool = False  # set true when running behind the Next.js proxy
+    # A header set by the hosting platform's edge with the visitor's IP (Fly.io: fly-client-ip).
+    # Only set it when every request reaches the backend through that edge.
+    client_ip_header: str | None = None
 
     cors_origins: str = "http://localhost:3000"
 

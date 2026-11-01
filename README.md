@@ -92,7 +92,7 @@ Without an AI the app still runs in rules-only mode for pasted text. `/api/healt
 ## Tests
 
 ```bash
-cd backend && uv run pytest -q   # 124 tests, no network, no API spend (Claude and Ollama are faked)
+cd backend && uv run pytest -q   # 127 tests, no network, no API spend (Claude and Ollama are faked)
 cd frontend && npm run lint && npx tsc --noEmit
 ```
 
@@ -192,6 +192,46 @@ The learning curve is now flat (0.989 with 75% of the US-style data, 0.990 with 
 The script never trains on `test.jsonl`, `test_new.jsonl`, or `public.jsonl`, and drops any training message that is a near-copy of a test message (461 of them). Public scams come in campaigns, the same template reworded, so it also drops public messages 80%+ similar to a public-test message; before that filter, 28 of the 100 public-test scams had a close variant in training. It writes out-of-fold predictions for every dev message, so `combine_study` can compare mixing rules on messages the model never saw. The exported JSON model is checked against scikit-learn's own predictions (max difference 3e-7).
 
 ## Deploy
+
+### Public site, AI on your own computer (Fly.io + Tailscale)
+
+```
+visitor ──https──> secondlook-web (Fly, public)
+                        │ /api/*  over Fly's private network
+                        v
+                   secondlook-api (Fly, no public IP) ──Tailscale──> Ollama on your computer
+```
+
+- The web app is the only public part. The API has no public IP, and Ollama is reachable only inside your Tailscale network, never from the internet.
+- One scan uses the AI at a time (`OLLAMA_MAX_CONCURRENT=1`). A text scan that waits more than 20 seconds, or arrives while your computer is off or asleep, is scored by the rules and the text model instead. Screenshots need the AI, so they get a "try again or paste the text" message.
+- Rate limits use the visitor IP that Fly's edge puts in `fly-client-ip`.
+
+On your computer:
+
+1. Install the Tailscale app and sign in.
+2. Share Ollama with your Tailscale network only: `tailscale serve --bg --tcp 11434 tcp://localhost:11434`
+3. In the Tailscale admin console, add a tag for the server and limit it to Ollama:
+   ```json
+   "tagOwners": { "tag:secondlook": ["autogroup:admin"] },
+   "acls": [ { "action": "accept", "src": ["tag:secondlook"], "dst": ["<your computer's Tailscale name>:11434"] } ]
+   ```
+   (keep your existing rules for your own devices).
+4. Create an auth key that is reusable, ephemeral, pre-approved, and tagged `tag:secondlook`.
+
+Then deploy:
+
+```bash
+fly apps create secondlook-api && fly apps create secondlook-web
+fly volumes create secondlook_data -a secondlook-api -r iad -s 1
+fly ips allocate-v6 --private -a secondlook-api
+fly secrets set -a secondlook-api TS_AUTHKEY=tskey-auth-... OLLAMA_BASE_URL=http://<your computer's Tailscale IP>:11434
+(cd backend && fly deploy --no-public-ips)
+(cd frontend && fly deploy)
+```
+
+`backend/Dockerfile.fly` adds Tailscale to the backend image, and `backend/fly-start.sh` connects it before starting the app as a normal user. Both machines stop when idle and start on the next visit.
+
+### Other hosts
 
 - **Backend** (Railway, Fly.io, or Render):
   - Deploy `backend/` using its Dockerfile. It listens on `$PORT`.

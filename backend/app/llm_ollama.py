@@ -9,6 +9,7 @@ depend on tool calling. Instead:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -67,6 +68,8 @@ class OllamaAnalyzer:
     def __init__(self, settings: Settings, http: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
         self._http = http
+        n = settings.ollama_max_concurrent
+        self._slots = asyncio.Semaphore(n) if n > 0 else None
 
     @property
     def model(self) -> str:
@@ -75,7 +78,9 @@ class OllamaAnalyzer:
     @property
     def http(self) -> httpx.AsyncClient:
         if self._http is None:
-            self._http = httpx.AsyncClient(base_url=self.settings.ollama_base_url, timeout=self.settings.ollama_timeout_seconds)
+            s = self.settings
+            timeout = httpx.Timeout(s.ollama_timeout_seconds, connect=s.ollama_connect_timeout_seconds)
+            self._http = httpx.AsyncClient(base_url=s.ollama_base_url, timeout=timeout)
         return self._http
 
     async def _chat(self, system: str, user: str, image_b64: str | None, schema: dict) -> tuple[dict, int, int]:
@@ -96,14 +101,17 @@ class OllamaAnalyzer:
         try:
             resp = await self.http.post("/api/chat", json=body)
         except httpx.ConnectError as exc:
-            raise LLMUnavailable(f"Couldn't reach Ollama at {s.ollama_base_url}. Is the Ollama app running?") from exc
+            # The address stays in the server log; visitors only learn that the AI is offline.
+            log.warning("couldn't reach Ollama at %s: %s", s.ollama_base_url, exc)
+            raise LLMUnavailable("The AI is offline right now.") from exc
         except httpx.TimeoutException as exc:
             raise LLMUnavailable("The local AI model took too long.") from exc
         except httpx.HTTPError as exc:
             raise LLMUnavailable("Couldn't talk to Ollama.") from exc
 
         if resp.status_code == 404:
-            raise LLMUnavailable(f"Ollama doesn't have the model '{s.ollama_model}'. Run: ollama pull {s.ollama_model}")
+            log.error("Ollama doesn't have the model '%s'. Run: ollama pull %s", s.ollama_model, s.ollama_model)
+            raise LLMUnavailable("The AI is offline right now.")
         if resp.status_code >= 400:
             log.error("Ollama error %s: %s", resp.status_code, resp.text[:300])
             raise LLMUnavailable(f"Local AI error ({resp.status_code}).")
@@ -118,6 +126,18 @@ class OllamaAnalyzer:
         return parsed, data.get("prompt_eval_count", 0) or 0, data.get("eval_count", 0) or 0
 
     async def analyze(self, text: str | None, image: tuple[str, str] | None, check_links: LinkChecker) -> LLMResult:
+        if self._slots is None:
+            return await self._analyze(text, image, check_links)
+        try:
+            await asyncio.wait_for(self._slots.acquire(), self.settings.ollama_queue_seconds)
+        except TimeoutError:
+            raise LLMUnavailable("The AI is busy with other scans right now.") from None
+        try:
+            return await self._analyze(text, image, check_links)
+        finally:
+            self._slots.release()
+
+    async def _analyze(self, text: str | None, image: tuple[str, str] | None, check_links: LinkChecker) -> LLMResult:
         t_in = t_out = 0
         image_b64 = image[1] if image else None
         extracted, seen_urls = "", []

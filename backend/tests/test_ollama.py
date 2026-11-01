@@ -73,8 +73,8 @@ async def test_screenshot_reads_first_then_decides():
 @pytest.mark.parametrize(
     "response, message",
     [
-        (httpx.ConnectError("refused"), "Is the Ollama app running"),
-        (httpx.Response(404, json={"error": "model not found"}), "ollama pull vision-model"),
+        (httpx.ConnectError("refused"), "offline"),
+        (httpx.Response(404, json={"error": "model not found"}), "offline"),
         (httpx.Response(200, json={"message": {"content": "not json"}}), "unreadable"),
         (chat_reply({"headline": "half an answer"}), "incomplete"),
     ],
@@ -87,3 +87,34 @@ async def test_failures_become_llm_unavailable(response, message):
         route.mock(return_value=response)
     with pytest.raises(LLMUnavailable, match=message):
         await OllamaAnalyzer(settings()).analyze("hello", None, fake_check)
+
+
+@respx.mock
+async def test_unreachable_ai_never_reveals_its_address():
+    respx.post(f"{BASE}/api/chat").mock(side_effect=httpx.ConnectError("refused"))
+    with pytest.raises(LLMUnavailable) as err:
+        await OllamaAnalyzer(settings()).analyze("hello", None, fake_check)
+    assert BASE not in str(err.value) and "11434" not in str(err.value)
+
+
+async def test_a_full_queue_falls_back_instead_of_waiting():
+    import asyncio
+
+    analyzer = OllamaAnalyzer(settings(ollama_max_concurrent=1, ollama_queue_seconds=0.05))
+    await analyzer._slots.acquire()  # another scan holds the only slot
+    with pytest.raises(LLMUnavailable, match="busy"):
+        await analyzer.analyze("hello", None, fake_check)
+    analyzer._slots.release()
+    assert not analyzer._slots.locked()
+    await asyncio.sleep(0)
+
+
+def test_edge_client_ip_header_is_used_for_rate_limits(tmp_path):
+    from tests.fakes import FakeAnalyzer
+    from tests.test_api import make_client
+
+    with make_client(tmp_path, FakeAnalyzer(), client_ip_header="fly-client-ip", rate_limit_per_minute=2) as c:
+        for _ in range(2):
+            assert c.post("/api/domain", json={"domain": "a.com"}, headers={"fly-client-ip": "1.1.1.1"}).status_code == 200
+        assert c.post("/api/domain", json={"domain": "a.com"}, headers={"fly-client-ip": "1.1.1.1"}).status_code == 429
+        assert c.post("/api/domain", json={"domain": "a.com"}, headers={"fly-client-ip": "2.2.2.2"}).status_code == 200

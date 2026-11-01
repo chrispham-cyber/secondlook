@@ -69,6 +69,8 @@ def create_app(
     )
 
     def client_ip(request: Request) -> str:
+        if settings.client_ip_header and (ip := request.headers.get(settings.client_ip_header)):
+            return ip.strip()
         if settings.trust_proxy_headers:
             # The right-most entry is the one our own proxy added; anything to its left is client-supplied.
             fwd = request.headers.get("x-forwarded-for")
